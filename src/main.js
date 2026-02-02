@@ -309,8 +309,9 @@ function setupTileHover() {
       return;
     }
 
+    const stage = outputCanvas.querySelector(".viewer__stage");
     const img = outputCanvas.querySelector(".viewer__image");
-    if (!img) {
+    if (!stage || !img) {
       return;
     }
 
@@ -318,10 +319,15 @@ function setupTileHover() {
     const zoomSlider = document.querySelector("#zoom-output");
     const zoom = zoomSlider ? Number(zoomSlider.value) : 1;
 
-    // Get image bounds
+    // Get bounds
+    const stageRect = stage.getBoundingClientRect();
     const imgRect = img.getBoundingClientRect();
 
-    // Calculate mouse position relative to image (accounting for zoom and pan)
+    // Calculate image offset within the stage (due to flexbox centering)
+    const imgOffsetX = (imgRect.left - stageRect.left) / zoom;
+    const imgOffsetY = (imgRect.top - stageRect.top) / zoom;
+
+    // Calculate mouse position relative to image
     const mouseX = event.clientX - imgRect.left;
     const mouseY = event.clientY - imgRect.top;
 
@@ -342,10 +348,10 @@ function setupTileHover() {
     const tileY = Math.floor(imgY / 8);
     const tileIndex = tileY * 32 + tileX;
 
-    // Update highlight position
+    // Update highlight position (add image offset within stage)
     tileHighlight.style.display = "block";
-    tileHighlight.style.left = `${tileX * 8}px`;
-    tileHighlight.style.top = `${tileY * 8}px`;
+    tileHighlight.style.left = `${imgOffsetX + tileX * 8}px`;
+    tileHighlight.style.top = `${imgOffsetY + tileY * 8}px`;
 
     // Get palette index for this tile
     const paletteIndex = state.tilePaletteMap[tileIndex];
