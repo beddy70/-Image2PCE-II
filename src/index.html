@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Image2PCE II</title>
+    <script type="module" src="/main.js" defer></script>
+  </head>
+
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand__title">Image2PCE II</span>
+          <span class="brand__subtitle">Convertisseur d’images 256×256 PC-Engine</span>
+        </div>
+        <div class="actions">
+          <button class="btn" id="open-image">Open image</button>
+          <button class="btn" id="save-image">Save as image</button>
+          <button class="btn" id="save-binaries">Save binaries</button>
+          <button class="btn" id="save-text">Save plain text</button>
+        </div>
+      </header>
+
+      <section class="settings">
+        <div class="settings__group">
+          <label>
+            Redimensionnement
+            <select id="resize-method">
+              <option value="lanczos">lanczos</option>
+              <option value="nearest">nearest</option>
+              <option value="catmullrom">catmullrom</option>
+            </select>
+          </label>
+          <label>
+            Nombre de palettes
+            <input id="palette-count" type="number" min="1" max="16" value="16" />
+          </label>
+          <label>
+            Couleur 0
+            <select id="color0-mode">
+              <option value="auto">auto</option>
+              <option value="fixed">fixée</option>
+            </select>
+          </label>
+          <label>
+            Dithering
+            <select id="dither-mode">
+              <option value="none">aucun</option>
+              <option value="floyd">Floyd–Steinberg</option>
+              <option value="ordered">ordered</option>
+            </select>
+          </label>
+          <label>
+            Couleur de fond
+            <input id="background-color" type="color" value="#000000" />
+          </label>
+        </div>
+        <div class="settings__group">
+          <label>
+            Transparence
+            <input id="transparency" type="checkbox" checked />
+          </label>
+          <label>
+            Keep ratio
+            <input id="keep-ratio" type="checkbox" checked />
+          </label>
+          <label>
+            Masque dithering
+            <input id="dither-mask" type="checkbox" />
+          </label>
+          <button class="btn btn--primary" id="run-conversion">Convertir</button>
+        </div>
+      </section>
+
+      <section class="viewer">
+        <div class="viewer__panel">
+          <div class="viewer__header">
+            <h2>Source</h2>
+            <span class="viewer__meta" id="input-meta">Aucune image chargée</span>
+          </div>
+          <div class="viewer__canvas" id="input-canvas">
+            <p>Chargez une image pour commencer.</p>
+          </div>
+          <div class="viewer__toolbar">
+            <span>Masque dithering : mode édition</span>
+          </div>
+          <div class="viewer__zoom">
+            <label>
+              Zoom source
+              <input id="zoom-input" type="range" min="1" max="8" value="2" />
+            </label>
+          </div>
+        </div>
+        <div class="viewer__panel">
+          <div class="viewer__header">
+            <h2>Sortie</h2>
+            <span class="viewer__meta" id="output-meta">256×256, 32×32 tuiles</span>
+          </div>
+          <div class="viewer__canvas" id="output-canvas">
+            <p>Le rendu final apparaîtra ici.</p>
+          </div>
+          <div class="viewer__toolbar">
+            <span>Survol: palette de la tuile active</span>
+            <div class="palette-tooltip" id="palette-tooltip"></div>
+          </div>
+          <div class="viewer__zoom">
+            <label>
+              Zoom sortie
+              <input id="zoom-output" type="range" min="1" max="8" value="2" />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="palettes">
+        <div class="palettes__header">
+          <h2>Palettes générées</h2>
+          <span id="palette-summary">0 palette utilisée</span>
+        </div>
+        <div class="palettes__grid" id="palettes-grid">
+          <div class="palette-card">
+            <div class="palette-card__title">Palette 0</div>
+            <div class="palette-card__colors"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
