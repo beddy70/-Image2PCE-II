@@ -124,6 +124,7 @@ async function runConversion() {
         <img src="data:image/png;base64,${previewBase64}" alt="output" class="viewer__image" />
         <div class="tile-highlight" id="tile-highlight"></div>
       </div>
+      <canvas class="tile-zoom" id="tile-zoom" width="80" height="80"></canvas>
     `;
 
     const outputMeta = document.querySelector("#output-meta");
@@ -299,6 +300,7 @@ function setupDrag(target) {
 function setupTileHover() {
   const outputCanvas = document.querySelector("#output-canvas");
   const tileHighlight = document.querySelector("#tile-highlight");
+  const tileZoom = document.querySelector("#tile-zoom");
 
   if (!outputCanvas || !tileHighlight) {
     return;
@@ -353,6 +355,19 @@ function setupTileHover() {
     tileHighlight.style.left = `${imgOffsetX + tileX * 8}px`;
     tileHighlight.style.top = `${imgOffsetY + tileY * 8}px`;
 
+    // Draw zoomed tile (10x magnification)
+    if (tileZoom) {
+      tileZoom.style.display = "block";
+      const ctx = tileZoom.getContext("2d");
+      ctx.imageSmoothingEnabled = false;
+      // Draw 8x8 tile from source image, scaled to 80x80
+      ctx.drawImage(
+        img,
+        tileX * 8, tileY * 8, 8, 8,  // source: tile position and size
+        0, 0, 80, 80                  // dest: fill canvas at 10x zoom
+      );
+    }
+
     // Get palette index for this tile
     const paletteIndex = state.tilePaletteMap[tileIndex];
     if (paletteIndex !== undefined && paletteIndex !== state.hoveredTile) {
@@ -364,6 +379,9 @@ function setupTileHover() {
 
   outputCanvas.addEventListener("mouseleave", () => {
     tileHighlight.style.display = "none";
+    if (tileZoom) {
+      tileZoom.style.display = "none";
+    }
     clearPaletteHighlight();
     updatePaletteTooltip(null);
     state.hoveredTile = null;

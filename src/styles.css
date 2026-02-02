@@ -412,6 +412,22 @@ input[type="range"] {
   z-index: 10;
 }
 
+/* Tile zoom preview (10x magnification) */
+.tile-zoom {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 80px;
+  height: 80px;
+  border: 2px solid #4f76ff;
+  border-radius: 4px;
+  background: #0d1016;
+  image-rendering: pixelated;
+  display: none;
+  z-index: 20;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
 /* Highlighted palette card */
 .palette-card.is-highlighted {
   border-color: #4f76ff;
