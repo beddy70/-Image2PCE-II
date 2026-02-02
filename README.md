@@ -141,6 +141,9 @@ Pour compiler pour Windows depuis macOS (expérimental) :
 # Installer les outils de cross-compilation
 brew install mingw-w64
 
+# Installer NSIS pour créer l'installateur Windows
+brew install nsis
+
 # Ajouter la target
 rustup target add x86_64-pc-windows-gnu
 
@@ -149,6 +152,8 @@ cargo tauri build --target x86_64-pc-windows-gnu
 ```
 
 > **Note** : La cross-compilation peut nécessiter une configuration supplémentaire. Il est recommandé de compiler nativement sur chaque plateforme cible pour une meilleure compatibilité.
+>
+> **Important** : NSIS (Nullsoft Scriptable Install System) est requis pour générer l'installateur `.exe`. Sans NSIS, la compilation échouera avec l'erreur `makensis: No such file or directory`.
 
 ### Développement
 
