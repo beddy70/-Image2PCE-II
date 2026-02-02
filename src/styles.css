@@ -126,11 +126,40 @@ input[type="range"] {
 
 .viewer {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 20px;
+  grid-template-columns: var(--viewer-split, 1fr) 8px var(--viewer-split-right, 1fr);
+  gap: 0;
   min-height: 300px;
   height: var(--viewer-height, 500px);
   position: relative;
+}
+
+.viewer__splitter {
+  background: #1f2432;
+  cursor: ew-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+  margin: 0 6px;
+}
+
+.viewer__splitter:hover,
+.viewer__splitter.is-dragging {
+  background: #4f76ff;
+}
+
+.viewer__splitter::before {
+  content: "";
+  width: 4px;
+  height: 40px;
+  background: #2a3142;
+  border-radius: 2px;
+  transition: background 0.2s ease;
+}
+
+.viewer__splitter:hover::before,
+.viewer__splitter.is-dragging::before {
+  background: #fff;
 }
 
 .viewer__resize-handle {

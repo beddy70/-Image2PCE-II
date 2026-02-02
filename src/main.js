@@ -877,6 +877,7 @@ const SETTINGS_KEY = "image2pce-settings";
 function saveSettings() {
   const viewer = document.querySelector(".viewer");
   const viewerHeight = viewer ? parseInt(getComputedStyle(viewer).getPropertyValue("--viewer-height")) || 500 : 500;
+  const viewerSplit = viewer ? parseFloat(getComputedStyle(viewer).getPropertyValue("--viewer-split")) || 50 : 50;
 
   const settings = {
     resizeMethod: document.querySelector("#resize-method")?.value,
@@ -893,6 +894,7 @@ function saveSettings() {
     crtMode: document.querySelector("#crt-mode")?.value,
     crtBlur: document.querySelector("#crt-blur")?.value,
     viewerHeight: viewerHeight,
+    viewerSplit: viewerSplit,
     curvePoints: state.curvePoints,
     fixedColor0: state.fixedColor0,
   };
@@ -966,6 +968,9 @@ function loadSettings() {
     }
     if (settings.viewerHeight) {
       applyViewerHeight(settings.viewerHeight);
+    }
+    if (settings.viewerSplit) {
+      applyViewerSplit(settings.viewerSplit);
     }
 
     // Restore state values
@@ -1217,10 +1222,66 @@ function setupViewerResize() {
   });
 }
 
+function setupViewerSplitter() {
+  const viewer = document.querySelector(".viewer");
+  const splitter = document.querySelector("#viewer-splitter");
+  if (!viewer || !splitter) return;
+
+  let isDragging = false;
+  let startX = 0;
+  let startLeftWidth = 0;
+
+  splitter.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    const leftPanel = viewer.querySelector(".viewer__panel");
+    startLeftWidth = leftPanel ? leftPanel.offsetWidth : viewer.offsetWidth / 2;
+    splitter.classList.add("is-dragging");
+    document.body.style.cursor = "ew-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+
+    const viewerRect = viewer.getBoundingClientRect();
+    const viewerWidth = viewerRect.width;
+    const deltaX = e.clientX - startX;
+    const newLeftWidth = startLeftWidth + deltaX;
+
+    // Calculate percentage (min 20%, max 80%)
+    const leftPercent = Math.max(20, Math.min(80, (newLeftWidth / viewerWidth) * 100));
+    const rightPercent = 100 - leftPercent;
+
+    viewer.style.setProperty("--viewer-split", `${leftPercent}fr`);
+    viewer.style.setProperty("--viewer-split-right", `${rightPercent}fr`);
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (isDragging) {
+      isDragging = false;
+      splitter.classList.remove("is-dragging");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      saveSettings();
+    }
+  });
+}
+
 function applyViewerHeight(height) {
   const viewer = document.querySelector(".viewer");
   if (viewer && height) {
     viewer.style.setProperty("--viewer-height", `${height}px`);
+  }
+}
+
+function applyViewerSplit(leftPercent) {
+  const viewer = document.querySelector(".viewer");
+  if (viewer && leftPercent) {
+    const rightPercent = 100 - leftPercent;
+    viewer.style.setProperty("--viewer-split", `${leftPercent}fr`);
+    viewer.style.setProperty("--viewer-split-right", `${rightPercent}fr`);
   }
 }
 
@@ -1311,8 +1372,9 @@ window.addEventListener("DOMContentLoaded", () => {
     drawCurve(ctx);
   }
 
-  // Setup viewer resize
+  // Setup viewer resize and splitter
   setupViewerResize();
+  setupViewerSplitter();
 
   // Setup auto-save for settings
   setupSettingsAutoSave();
