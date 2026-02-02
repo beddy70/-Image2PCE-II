@@ -2,8 +2,14 @@ use base64::Engine;
 use image::imageops::colorops::{dither, ColorMap};
 use image::{imageops::FilterType, DynamicImage, Rgba, RgbaImage};
 use serde::Serialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_dialog::DialogExt;
+
+#[derive(Clone, Serialize)]
+struct ProgressEvent {
+    percent: u8,
+    stage: String,
+}
 
 #[tauri::command]
 async fn open_image(app: AppHandle) -> Result<Option<String>, String> {
@@ -29,6 +35,7 @@ struct ConversionResult {
 
 #[tauri::command]
 fn run_conversion(
+    app: AppHandle,
     input_path: String,
     resize_method: String,
     palette_count: u8,
@@ -36,7 +43,20 @@ fn run_conversion(
     background_color: String,
     keep_ratio: bool,
 ) -> Result<ConversionResult, String> {
+    // Emit: loading image
+    let _ = app.emit("conversion-progress", ProgressEvent {
+        percent: 5,
+        stage: "Chargement de l'image...".to_string(),
+    });
+
     let image = image::open(&input_path).map_err(|e| e.to_string())?;
+
+    // Emit: resizing
+    let _ = app.emit("conversion-progress", ProgressEvent {
+        percent: 15,
+        stage: "Redimensionnement...".to_string(),
+    });
+
     let resized = resize_to_target(
         image,
         256,
@@ -45,23 +65,57 @@ fn run_conversion(
         keep_ratio,
         &background_color,
     )?;
+
+    // Emit: quantization
+    let _ = app.emit("conversion-progress", ProgressEvent {
+        percent: 30,
+        stage: "Quantification RGB333...".to_string(),
+    });
+
     // First pass: quantize to RGB333 WITHOUT dithering to build palettes
     let quantized_for_palette = quantize_rgb333(resized.clone(), palette_count, "none", &background_color)?;
+
+    // Emit: palette building
+    let _ = app.emit("conversion-progress", ProgressEvent {
+        percent: 50,
+        stage: "Construction des palettes...".to_string(),
+    });
+
     let palette_result = build_palettes_for_tiles(
         &quantized_for_palette,
         palette_count as usize,
         &background_color,
     )?;
+
+    // Emit: applying palettes with dithering
+    let _ = app.emit("conversion-progress", ProgressEvent {
+        percent: 70,
+        stage: "Application des palettes...".to_string(),
+    });
+
     // Second pass: apply dithering with the actual tile palettes
     let preview = apply_tile_palettes_with_dither(
         &resized.to_rgba8(),
         &palette_result,
         &dither_mode,
     )?;
+
+    // Emit: encoding
+    let _ = app.emit("conversion-progress", ProgressEvent {
+        percent: 90,
+        stage: "Encodage PNG...".to_string(),
+    });
+
     let mut output = Vec::new();
     DynamicImage::ImageRgba8(preview)
         .write_to(&mut std::io::Cursor::new(&mut output), image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
+
+    // Emit: done
+    let _ = app.emit("conversion-progress", ProgressEvent {
+        percent: 100,
+        stage: "Terminé!".to_string(),
+    });
 
     Ok(ConversionResult {
         preview_base64: base64::engine::general_purpose::STANDARD.encode(output),
@@ -229,12 +283,17 @@ fn build_palettes_for_tiles(
     let mut palette_colors = Vec::new();
     let mut palettes = Vec::new();
     for cluster in clusters.iter_mut() {
+        // Remove color0 before sorting to ensure it stays at position 0
+        cluster.retain(|c| c != &global_color0);
         cluster.sort();
         cluster.dedup();
-        if !cluster.contains(&global_color0) {
-            cluster.insert(0, global_color0.clone());
+        // Truncate to 15 colors (leaving room for color0 at position 0)
+        if cluster.len() > 15 {
+            cluster.truncate(15);
         }
-        // Palette should already be <= 16 colors from rebuild_clusters_with_frequency
+        // Always insert color0 at position 0
+        cluster.insert(0, global_color0.clone());
+
         palette_colors.push(cluster.clone());
         let mut padded = cluster.clone();
         while padded.len() < 16 {

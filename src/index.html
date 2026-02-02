@@ -39,10 +39,13 @@
           </label>
           <label>
             Couleur 0
-            <select id="color0-mode">
-              <option value="auto">auto</option>
-              <option value="fixed">fixée</option>
-            </select>
+            <div class="color0-selector">
+              <select id="color0-mode">
+                <option value="auto">auto</option>
+                <option value="fixed">fixée</option>
+              </select>
+              <div class="color0-preview" id="color0-preview" title="Cliquez sur une couleur dans les palettes"></div>
+            </div>
           </label>
           <label>
             Dithering
@@ -98,8 +101,16 @@
             <h2>Sortie</h2>
             <span class="viewer__meta" id="output-meta">256×256, 32×32 tuiles</span>
           </div>
-          <div class="viewer__canvas" id="output-canvas">
-            <p>Le rendu final apparaîtra ici.</p>
+          <div class="viewer__canvas-wrapper">
+            <div class="viewer__canvas" id="output-canvas">
+              <p>Le rendu final apparaîtra ici.</p>
+            </div>
+            <div class="progress-overlay" id="progress-overlay">
+              <div class="progress-bar">
+                <div class="progress-bar__fill" id="progress-fill"></div>
+              </div>
+              <span class="progress-text" id="progress-text">Conversion en cours...</span>
+            </div>
           </div>
           <div class="viewer__toolbar">
             <span>Survol: palette de la tuile active</span>
