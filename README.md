@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../logo.png" alt="Image2PCE II" width="200" />
+  <img src="logo.png" alt="Image2PCE II" width="200" />
 </p>
 
 <h1 align="center">Image2PCE II</h1>
