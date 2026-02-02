@@ -184,6 +184,7 @@ input[type="range"] {
   width: 100%;
   height: 100%;
   transform-origin: center;
+  position: relative;
 }
 
 .viewer__image {
@@ -397,6 +398,48 @@ input[type="range"] {
 
 .palette-swatch.is-selected {
   box-shadow: 0 0 0 1px #6a4bff, 0 0 8px #6a4bff;
+}
+
+/* Tile highlight on hover */
+.tile-highlight {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #4f76ff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 8px #4f76ff;
+  pointer-events: none;
+  display: none;
+  z-index: 10;
+}
+
+/* Highlighted palette card */
+.palette-card.is-highlighted {
+  border-color: #4f76ff;
+  box-shadow: 0 0 0 2px #4f76ff, 0 0 16px rgba(79, 118, 255, 0.4);
+}
+
+/* Palette tooltip in toolbar */
+.palette-tooltip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.palette-tooltip__label {
+  color: #aab3c2;
+}
+
+.palette-tooltip__colors {
+  display: flex;
+  gap: 2px;
+}
+
+.palette-tooltip__swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid #2a3142;
 }
 
 @media (max-width: 900px) {

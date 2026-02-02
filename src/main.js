@@ -5,8 +5,10 @@ const state = {
   inputImage: null,
   outputPreview: null,
   palettes: [],
+  tilePaletteMap: [],
   fixedColor0: "#000000",
   isConverting: false,
+  hoveredTile: null,
   drag: {
     input: { x: 0, y: 0, isDragging: false, lastX: 0, lastY: 0 },
     output: { x: 0, y: 0, isDragging: false, lastX: 0, lastY: 0 },
@@ -112,10 +114,15 @@ async function runConversion() {
 
     const { preview_base64: previewBase64, palettes, tile_palette_map: tilePaletteMap } = conversionResult;
 
+    // Store in state for tile hover feature
+    state.palettes = palettes;
+    state.tilePaletteMap = tilePaletteMap;
+
     const outputCanvas = document.querySelector("#output-canvas");
     outputCanvas.innerHTML = `
       <div class="viewer__stage">
         <img src="data:image/png;base64,${previewBase64}" alt="output" class="viewer__image" />
+        <div class="tile-highlight" id="tile-highlight"></div>
       </div>
     `;
 
@@ -124,6 +131,7 @@ async function runConversion() {
 
     applyZoom("output");
     renderPalettes(palettes, tilePaletteMap);
+    setupTileHover();
   } catch (error) {
     console.error("Conversion error:", error);
     updateProgress(0, "Erreur de conversion");
@@ -154,6 +162,7 @@ function renderPalettes(palettes, tilePaletteMap = []) {
     const usageCount = tilePaletteMap.filter((entry) => entry === index).length;
     const card = document.createElement("div");
     card.className = "palette-card";
+    card.dataset.paletteIndex = index;
     const title = document.createElement("div");
     title.className = "palette-card__title";
     title.textContent = `Palette ${index} (${usageCount} tuiles)`;
@@ -285,6 +294,120 @@ function setupDrag(target) {
     dragState.y += dy;
     applyZoom(target);
   });
+}
+
+function setupTileHover() {
+  const outputCanvas = document.querySelector("#output-canvas");
+  const tileHighlight = document.querySelector("#tile-highlight");
+
+  if (!outputCanvas || !tileHighlight) {
+    return;
+  }
+
+  outputCanvas.addEventListener("mousemove", (event) => {
+    if (state.tilePaletteMap.length === 0) {
+      return;
+    }
+
+    const img = outputCanvas.querySelector(".viewer__image");
+    if (!img) {
+      return;
+    }
+
+    // Get zoom level
+    const zoomSlider = document.querySelector("#zoom-output");
+    const zoom = zoomSlider ? Number(zoomSlider.value) : 1;
+
+    // Get image bounds
+    const imgRect = img.getBoundingClientRect();
+
+    // Calculate mouse position relative to image (accounting for zoom and pan)
+    const mouseX = event.clientX - imgRect.left;
+    const mouseY = event.clientY - imgRect.top;
+
+    // Convert to image coordinates (256x256)
+    const imgX = mouseX / zoom;
+    const imgY = mouseY / zoom;
+
+    // Check if within image bounds
+    if (imgX < 0 || imgX >= 256 || imgY < 0 || imgY >= 256) {
+      tileHighlight.style.display = "none";
+      clearPaletteHighlight();
+      updatePaletteTooltip(null);
+      return;
+    }
+
+    // Calculate tile coordinates (8x8 tiles)
+    const tileX = Math.floor(imgX / 8);
+    const tileY = Math.floor(imgY / 8);
+    const tileIndex = tileY * 32 + tileX;
+
+    // Update highlight position
+    tileHighlight.style.display = "block";
+    tileHighlight.style.left = `${tileX * 8}px`;
+    tileHighlight.style.top = `${tileY * 8}px`;
+
+    // Get palette index for this tile
+    const paletteIndex = state.tilePaletteMap[tileIndex];
+    if (paletteIndex !== undefined && paletteIndex !== state.hoveredTile) {
+      state.hoveredTile = paletteIndex;
+      highlightPalette(paletteIndex);
+      updatePaletteTooltip(paletteIndex, tileX, tileY);
+    }
+  });
+
+  outputCanvas.addEventListener("mouseleave", () => {
+    tileHighlight.style.display = "none";
+    clearPaletteHighlight();
+    updatePaletteTooltip(null);
+    state.hoveredTile = null;
+  });
+}
+
+function highlightPalette(paletteIndex) {
+  // Remove highlight from all palette cards
+  document.querySelectorAll(".palette-card").forEach((card) => {
+    card.classList.remove("is-highlighted");
+  });
+
+  // Add highlight to the matching palette card
+  const targetCard = document.querySelector(`.palette-card[data-palette-index="${paletteIndex}"]`);
+  if (targetCard) {
+    targetCard.classList.add("is-highlighted");
+    // Scroll into view if needed
+    targetCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+}
+
+function clearPaletteHighlight() {
+  document.querySelectorAll(".palette-card").forEach((card) => {
+    card.classList.remove("is-highlighted");
+  });
+}
+
+function updatePaletteTooltip(paletteIndex, tileX, tileY) {
+  const tooltip = document.querySelector("#palette-tooltip");
+  if (!tooltip) {
+    return;
+  }
+
+  if (paletteIndex === null) {
+    tooltip.innerHTML = "";
+    return;
+  }
+
+  const palette = state.palettes[paletteIndex];
+  if (!palette) {
+    return;
+  }
+
+  // Show mini palette preview in tooltip
+  tooltip.innerHTML = `
+    <span class="palette-tooltip__label">Tuile (${tileX},${tileY}) → Palette ${paletteIndex}</span>
+    <div class="palette-tooltip__colors">
+      ${palette.slice(0, 8).map((color) => `<div class="palette-tooltip__swatch" style="background-color:${color}"></div>`).join("")}
+    </div>
+  `;
 }
 
 function bindActions() {
