@@ -68,6 +68,88 @@ cargo tauri build
 
 L'application compilée se trouve dans `target/release/bundle/`.
 
+### Compilation multi-plateforme
+
+#### macOS
+
+**Apple Silicon (M1/M2/M3)** :
+```bash
+rustup target add aarch64-apple-darwin
+cargo tauri build --target aarch64-apple-darwin
+```
+
+**Intel** :
+```bash
+rustup target add x86_64-apple-darwin
+cargo tauri build --target x86_64-apple-darwin
+```
+
+**Universal Binary (Intel + Apple Silicon)** :
+```bash
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+cargo tauri build --target universal-apple-darwin
+```
+
+Fichiers générés :
+- `target/release/bundle/macos/Image2PCE II.app` - Application
+- `target/release/bundle/dmg/Image2PCE II_x.x.x_*.dmg` - Image disque
+
+#### Windows
+
+**Prérequis** : [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) avec "Desktop development with C++"
+
+**64-bit** :
+```bash
+rustup target add x86_64-pc-windows-msvc
+cargo tauri build --target x86_64-pc-windows-msvc
+```
+
+**32-bit** :
+```bash
+rustup target add i686-pc-windows-msvc
+cargo tauri build --target i686-pc-windows-msvc
+```
+
+Fichiers générés :
+- `target/release/bundle/msi/Image2PCE II_x.x.x_x64.msi` - Installateur MSI
+- `target/release/bundle/nsis/Image2PCE II_x.x.x_x64-setup.exe` - Installateur NSIS
+
+#### Linux
+
+**Prérequis** (Debian/Ubuntu) :
+```bash
+sudo apt update
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file \
+  libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
+
+**64-bit** :
+```bash
+rustup target add x86_64-unknown-linux-gnu
+cargo tauri build --target x86_64-unknown-linux-gnu
+```
+
+Fichiers générés :
+- `target/release/bundle/deb/image2pce-ii_x.x.x_amd64.deb` - Paquet Debian
+- `target/release/bundle/appimage/image2pce-ii_x.x.x_amd64.AppImage` - AppImage
+- `target/release/bundle/rpm/image2pce-ii-x.x.x-1.x86_64.rpm` - Paquet RPM
+
+#### Cross-compilation depuis macOS
+
+Pour compiler pour Windows depuis macOS (expérimental) :
+```bash
+# Installer les outils de cross-compilation
+brew install mingw-w64
+
+# Ajouter la target
+rustup target add x86_64-pc-windows-gnu
+
+# Compiler
+cargo tauri build --target x86_64-pc-windows-gnu
+```
+
+> **Note** : La cross-compilation peut nécessiter une configuration supplémentaire. Il est recommandé de compiler nativement sur chaque plateforme cible pour une meilleure compatibilité.
+
 ### Développement
 
 ```bash
