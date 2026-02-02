@@ -248,11 +248,80 @@ fn build_palettes_for_tiles(
         palette_colors.push(vec![global_color0.clone()]);
     }
 
+    // Compact palettes: move unused palettes to the end
+    let (palettes, palette_colors, tile_palette_map) = compact_palettes(
+        palettes,
+        palette_colors,
+        tile_palette_map,
+        &global_color0,
+    );
+
     Ok(TilePaletteResult {
         palettes,
         tile_palette_map,
         palette_colors,
     })
+}
+
+/// Compact palettes by moving unused/empty ones to the end.
+/// A palette is considered "empty" if it only contains color0.
+/// Returns reordered palettes and updated tile_palette_map.
+fn compact_palettes(
+    palettes: Vec<Vec<String>>,
+    palette_colors: Vec<Vec<String>>,
+    mut tile_palette_map: Vec<usize>,
+    color0: &str,
+) -> (Vec<Vec<String>>, Vec<Vec<String>>, Vec<usize>) {
+    // Determine which palettes are "useful" (have real colors, not just color0)
+    let is_useful_palette: Vec<bool> = palette_colors
+        .iter()
+        .map(|colors| {
+            // A palette is useful if it has at least one color that isn't color0
+            colors.iter().any(|c| c != color0)
+        })
+        .collect();
+
+    // Count how many tiles use each palette
+    let mut usage_count = vec![0usize; palettes.len()];
+    for &palette_idx in tile_palette_map.iter() {
+        if palette_idx < usage_count.len() {
+            usage_count[palette_idx] += 1;
+        }
+    }
+
+    // Build mapping: old_index -> new_index
+    // Useful palettes with tiles come first, then empty/unused palettes go to the end
+    let mut used_indices: Vec<usize> = Vec::new();
+    let mut unused_indices: Vec<usize> = Vec::new();
+
+    for (idx, &count) in usage_count.iter().enumerate() {
+        // A palette is "used" if it has tiles AND has real colors (not just color0)
+        if count > 0 && is_useful_palette[idx] {
+            used_indices.push(idx);
+        } else {
+            unused_indices.push(idx);
+        }
+    }
+
+    // Create the new order: used palettes first, then unused
+    let new_order: Vec<usize> = used_indices.iter().chain(unused_indices.iter()).cloned().collect();
+
+    // Build reverse mapping: old_index -> new_index
+    let mut old_to_new = vec![0usize; palettes.len()];
+    for (new_idx, &old_idx) in new_order.iter().enumerate() {
+        old_to_new[old_idx] = new_idx;
+    }
+
+    // Reorder palettes and palette_colors
+    let reordered_palettes: Vec<Vec<String>> = new_order.iter().map(|&idx| palettes[idx].clone()).collect();
+    let reordered_colors: Vec<Vec<String>> = new_order.iter().map(|&idx| palette_colors[idx].clone()).collect();
+
+    // Update tile_palette_map with new indices
+    for idx in tile_palette_map.iter_mut() {
+        *idx = old_to_new[*idx];
+    }
+
+    (reordered_palettes, reordered_colors, tile_palette_map)
 }
 
 fn extract_tile_colors(image: &RgbaImage) -> Vec<Vec<String>> {
