@@ -872,6 +872,7 @@ function saveSettings() {
     vramAddress: document.querySelector("#vram-address")?.value,
     zoomInput: document.querySelector("#zoom-input")?.value,
     zoomOutput: document.querySelector("#zoom-output")?.value,
+    crtMode: document.querySelector("#crt-mode")?.value,
     curvePoints: state.curvePoints,
     fixedColor0: state.fixedColor0,
   };
@@ -935,6 +936,10 @@ function loadSettings() {
       const el = document.querySelector("#zoom-output");
       if (el) el.value = settings.zoomOutput;
     }
+    if (settings.crtMode) {
+      const el = document.querySelector("#crt-mode");
+      if (el) el.value = settings.crtMode;
+    }
 
     // Restore state values
     if (settings.curvePoints && Array.isArray(settings.curvePoints)) {
@@ -963,6 +968,7 @@ function setupSettingsAutoSave() {
     "#vram-address",
     "#zoom-input",
     "#zoom-output",
+    "#crt-mode",
   ];
 
   inputs.forEach((selector) => {
@@ -985,6 +991,41 @@ function setupSettingsAutoSave() {
 
 // ===== End Settings Persistence =====
 
+// ===== CRT Simulation =====
+
+function applyCrtMode(mode) {
+  const overlay = document.querySelector("#crt-overlay");
+  const wrapper = document.querySelector(".viewer__canvas-wrapper");
+  if (!overlay) return;
+
+  // Remove all CRT classes
+  overlay.classList.remove("is-active", "crt-scanlines", "crt-aperture", "crt-shadowmask", "crt-composite");
+  wrapper?.classList.remove("crt-glow", "crt-blur-light", "crt-blur-medium", "crt-blur-heavy");
+
+  if (mode && mode !== "none") {
+    overlay.classList.add("is-active", `crt-${mode}`);
+    wrapper?.classList.add("crt-glow");
+
+    // Apply analog blur based on CRT type
+    // Scanlines: light blur (sharp scanlines)
+    // Aperture Grille: light blur (Trinitron style, sharper)
+    // Shadow Mask: medium blur (classic TV)
+    // Composite: heavy blur (analog video signal degradation)
+    const blurLevels = {
+      scanlines: "crt-blur-light",
+      aperture: "crt-blur-light",
+      shadowmask: "crt-blur-medium",
+      composite: "crt-blur-heavy",
+    };
+    const blurClass = blurLevels[mode];
+    if (blurClass) {
+      wrapper?.classList.add(blurClass);
+    }
+  }
+}
+
+// ===== End CRT Simulation =====
+
 function bindActions() {
   document.querySelector("#open-image").addEventListener("click", openImage);
   document.querySelector("#run-conversion").addEventListener("click", runConversion);
@@ -1000,6 +1041,11 @@ function bindActions() {
 
   // Color0 mode change
   document.querySelector("#color0-mode").addEventListener("change", updateColor0Preview);
+
+  // CRT mode change
+  document.querySelector("#crt-mode")?.addEventListener("change", (e) => {
+    applyCrtMode(e.target.value);
+  });
 
   // Background color input change - sync with color0 preview and state
   document.querySelector("#background-color").addEventListener("input", (e) => {
@@ -1048,6 +1094,12 @@ window.addEventListener("DOMContentLoaded", () => {
   bindActions();
   updateColor0Preview();
   initCurveEditor();
+
+  // Apply CRT mode from loaded settings
+  const crtMode = document.querySelector("#crt-mode")?.value;
+  if (crtMode) {
+    applyCrtMode(crtMode);
+  }
 
   // Redraw curve with loaded settings
   const curveCanvas = document.querySelector("#curve-canvas");

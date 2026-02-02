@@ -123,6 +123,7 @@
             <div class="viewer__canvas" id="output-canvas">
               <p>Le rendu final apparaîtra ici.</p>
             </div>
+            <div class="crt-overlay" id="crt-overlay"></div>
             <div class="progress-overlay" id="progress-overlay">
               <div class="progress-bar">
                 <div class="progress-bar__fill" id="progress-fill"></div>
@@ -138,6 +139,16 @@
             <label>
               Zoom sortie
               <input id="zoom-output" type="range" min="1" max="8" value="2" />
+            </label>
+            <label>
+              Simulation CRT
+              <select id="crt-mode">
+                <option value="none">Aucune</option>
+                <option value="scanlines">Scanlines</option>
+                <option value="aperture">Aperture Grille</option>
+                <option value="shadowmask">Shadow Mask</option>
+                <option value="composite">Composite</option>
+              </select>
             </label>
           </div>
         </div>

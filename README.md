@@ -53,6 +53,19 @@ Image2PCE II est une application desktop permettant de convertir des images au f
 - Survol des tuiles avec affichage de la palette associée
 - Sauvegarde automatique des réglages
 
+### Simulation CRT
+Simulation d'affichage sur écran cathodique avec plusieurs modes :
+- **Scanlines** : lignes de balayage horizontales (flou léger)
+- **Aperture Grille** : bandes RGB verticales style Trinitron (flou léger)
+- **Shadow Mask** : motif de points RGB style TV classique (flou moyen)
+- **Composite** : combinaison scanlines + grille RGB + vignettage (flou prononcé)
+
+Chaque mode simule les caractéristiques analogiques des tubes CRT :
+- Flou progressif selon le type d'écran
+- Augmentation du contraste et de la saturation (phosphores)
+- Effet de bloom (halo lumineux)
+- Vignettage sur les bords (mode Composite)
+
 ## Installation
 
 ### Prérequis
