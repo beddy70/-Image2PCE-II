@@ -875,6 +875,9 @@ async function exportBinaries() {
 const SETTINGS_KEY = "image2pce-settings";
 
 function saveSettings() {
+  const viewer = document.querySelector(".viewer");
+  const viewerHeight = viewer ? parseInt(getComputedStyle(viewer).getPropertyValue("--viewer-height")) || 500 : 500;
+
   const settings = {
     resizeMethod: document.querySelector("#resize-method")?.value,
     paletteCount: document.querySelector("#palette-count")?.value,
@@ -889,6 +892,7 @@ function saveSettings() {
     zoomOutput: document.querySelector("#zoom-output")?.value,
     crtMode: document.querySelector("#crt-mode")?.value,
     crtBlur: document.querySelector("#crt-blur")?.value,
+    viewerHeight: viewerHeight,
     curvePoints: state.curvePoints,
     fixedColor0: state.fixedColor0,
   };
@@ -959,6 +963,9 @@ function loadSettings() {
     if (settings.crtBlur) {
       const el = document.querySelector("#crt-blur");
       if (el) el.value = settings.crtBlur;
+    }
+    if (settings.viewerHeight) {
+      applyViewerHeight(settings.viewerHeight);
     }
 
     // Restore state values
@@ -1170,6 +1177,55 @@ function boxBlurV(src, dst, width, height, radius) {
 
 // ===== End CRT Simulation =====
 
+// ===== Viewer Resize =====
+
+function setupViewerResize() {
+  const viewer = document.querySelector(".viewer");
+  const handle = document.querySelector("#viewer-resize-handle");
+  if (!viewer || !handle) return;
+
+  let isDragging = false;
+  let startY = 0;
+  let startHeight = 0;
+
+  handle.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    startY = e.clientY;
+    startHeight = viewer.offsetHeight;
+    handle.classList.add("is-dragging");
+    document.body.style.cursor = "ns-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+
+    const deltaY = e.clientY - startY;
+    const newHeight = Math.max(300, Math.min(1200, startHeight + deltaY));
+    viewer.style.setProperty("--viewer-height", `${newHeight}px`);
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (isDragging) {
+      isDragging = false;
+      handle.classList.remove("is-dragging");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      saveSettings();
+    }
+  });
+}
+
+function applyViewerHeight(height) {
+  const viewer = document.querySelector(".viewer");
+  if (viewer && height) {
+    viewer.style.setProperty("--viewer-height", `${height}px`);
+  }
+}
+
+// ===== End Viewer Resize =====
+
 function bindActions() {
   document.querySelector("#open-image").addEventListener("click", openImage);
   document.querySelector("#run-conversion").addEventListener("click", runConversion);
@@ -1254,6 +1310,9 @@ window.addEventListener("DOMContentLoaded", () => {
     const ctx = curveCanvas.getContext("2d");
     drawCurve(ctx);
   }
+
+  // Setup viewer resize
+  setupViewerResize();
 
   // Setup auto-save for settings
   setupSettingsAutoSave();
