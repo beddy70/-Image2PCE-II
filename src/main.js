@@ -4,15 +4,39 @@ const { listen } = window.__TAURI__.event;
 const state = {
   inputImage: null,
   outputPreview: null,
+  outputImageBase64: null,
   palettes: [],
   tilePaletteMap: [],
+  emptyTiles: [],
   fixedColor0: "#000000",
   isConverting: false,
   hoveredTile: null,
+  // Tile stats for display
+  tileStats: {
+    total: 0,
+    unique: 0,
+    duplicates: 0,
+    tilesBytes: 0,
+    batBytes: 0,
+  },
   drag: {
     input: { x: 0, y: 0, isDragging: false, lastX: 0, lastY: 0 },
     output: { x: 0, y: 0, isDragging: false, lastX: 0, lastY: 0 },
   },
+  // Curve editor: 9 control points for RGB333 thresholds (input → output)
+  // Default linear mapping: input 0,32,64,96,128,160,192,224,255 → output 0,32,64,96,128,160,192,224,255
+  curvePoints: [
+    { x: 0, y: 0 },
+    { x: 32, y: 32 },
+    { x: 64, y: 64 },
+    { x: 96, y: 96 },
+    { x: 128, y: 128 },
+    { x: 160, y: 160 },
+    { x: 192, y: 192 },
+    { x: 224, y: 224 },
+    { x: 255, y: 255 },
+  ],
+  curveSelectedPoint: null,
 };
 
 async function openImage() {
@@ -80,7 +104,15 @@ async function runConversion() {
     return;
   }
 
+  // Clear previous output to ensure progress bar is visible
+  const outputCanvas = document.querySelector("#output-canvas");
+  outputCanvas.innerHTML = '<p>Conversion en cours...</p>';
+
   showProgress(true);
+  updateProgress(0, "Démarrage de la conversion...");
+
+  // Wait for browser to paint the progress bar (double rAF ensures paint is complete)
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
   const resizeMethod = document.querySelector("#resize-method").value;
   const paletteCount = parseInt(
@@ -103,6 +135,9 @@ async function runConversion() {
   });
 
   try {
+    // Get the curve lookup table for RGB333 quantization
+    const curveLut = getCurveLUT();
+
     const conversionResult = await invoke("run_conversion", {
       inputPath: state.inputImage,
       resizeMethod,
@@ -110,13 +145,35 @@ async function runConversion() {
       ditherMode,
       backgroundColor,
       keepRatio,
+      curveLut,
     });
 
-    const { preview_base64: previewBase64, palettes, tile_palette_map: tilePaletteMap } = conversionResult;
+    const {
+      preview_base64: previewBase64,
+      palettes,
+      tile_palette_map: tilePaletteMap,
+      empty_tiles: emptyTiles,
+      tile_count: tileCount,
+      unique_tile_count: uniqueTileCount,
+    } = conversionResult;
 
-    // Store in state for tile hover feature
+    // Store in state for tile hover feature and export
     state.palettes = palettes;
     state.tilePaletteMap = tilePaletteMap;
+    state.emptyTiles = emptyTiles;
+    state.outputImageBase64 = previewBase64;
+
+    // Calculate tile stats
+    const duplicates = tileCount - uniqueTileCount;
+    const tilesBytes = uniqueTileCount * 32 + 32; // +32 for empty tile
+    const batBytes = tileCount * 2;
+    state.tileStats = {
+      total: tileCount,
+      unique: uniqueTileCount,
+      duplicates,
+      tilesBytes,
+      batBytes,
+    };
 
     const outputCanvas = document.querySelector("#output-canvas");
     outputCanvas.innerHTML = `
@@ -128,7 +185,7 @@ async function runConversion() {
     `;
 
     const outputMeta = document.querySelector("#output-meta");
-    outputMeta.textContent = `256×256 — resize=${resizeMethod}, keepRatio=${keepRatio}, palettes=${paletteCount}, dithering=${ditherMode}`;
+    outputMeta.textContent = `${tileCount} tuiles (${uniqueTileCount} uniques, ${duplicates} doublons) — ${tilesBytes} octets`;
 
     applyZoom("output");
     renderPalettes(palettes, tilePaletteMap);
@@ -151,9 +208,17 @@ function renderPalettes(palettes, tilePaletteMap = []) {
     return;
   }
 
-  // Count actually used palettes (palettes with tiles that have real colors)
+  // Count empty tiles
+  const emptyTileCount = state.emptyTiles.filter(Boolean).length;
+  const totalTiles = state.emptyTiles.length;
+  const nonEmptyTileCount = totalTiles - emptyTileCount;
+
+  // Count actually used palettes (palettes with non-empty tiles that have real colors)
   const usedPaletteCount = palettes.filter((palette, index) => {
-    const hasTiles = tilePaletteMap.filter((entry) => entry === index).length > 0;
+    // Count non-empty tiles assigned to this palette
+    const hasTiles = tilePaletteMap.filter((entry, tileIdx) =>
+      entry === index && !state.emptyTiles[tileIdx]
+    ).length > 0;
     const hasRealColors = palette.some((color) => color !== state.fixedColor0 && color !== "#000000");
     return hasTiles && hasRealColors;
   }).length;
@@ -161,7 +226,10 @@ function renderPalettes(palettes, tilePaletteMap = []) {
   // Palettes are already sorted by the backend (most used first, empty at end)
   grid.innerHTML = "";
   palettes.forEach((palette, index) => {
-    const usageCount = tilePaletteMap.filter((entry) => entry === index).length;
+    // Count only non-empty tiles for usage
+    const usageCount = tilePaletteMap.filter((entry, tileIdx) =>
+      entry === index && !state.emptyTiles[tileIdx]
+    ).length;
     const card = document.createElement("div");
     card.className = "palette-card";
     card.dataset.paletteIndex = index;
@@ -187,7 +255,8 @@ function renderPalettes(palettes, tilePaletteMap = []) {
     card.appendChild(colors);
     grid.appendChild(card);
   });
-  summary.textContent = `${usedPaletteCount} palette(s)`;
+  const emptyInfo = emptyTileCount > 0 ? ` — ${nonEmptyTileCount}/${totalTiles} tuiles actives` : "";
+  summary.textContent = `${usedPaletteCount} palette(s)${emptyInfo}`;
 }
 
 function selectColor0(color) {
@@ -218,6 +287,9 @@ function selectColor0(color) {
       rgbToHex(swatch.style.backgroundColor).toUpperCase() === color.toUpperCase()
     );
   });
+
+  // Save settings
+  saveSettings();
 }
 
 function rgbToHex(rgb) {
@@ -369,12 +441,19 @@ function setupTileHover() {
       );
     }
 
+    // Check if this is an empty tile
+    const isEmpty = state.emptyTiles[tileIndex] || false;
+
     // Get palette index for this tile
     const paletteIndex = state.tilePaletteMap[tileIndex];
     if (paletteIndex !== undefined && paletteIndex !== state.hoveredTile) {
       state.hoveredTile = paletteIndex;
-      highlightPalette(paletteIndex);
-      updatePaletteTooltip(paletteIndex, tileX, tileY);
+      if (!isEmpty) {
+        highlightPalette(paletteIndex);
+      } else {
+        clearPaletteHighlight();
+      }
+      updatePaletteTooltip(paletteIndex, tileX, tileY, isEmpty);
     }
   });
 
@@ -410,7 +489,7 @@ function clearPaletteHighlight() {
   });
 }
 
-function updatePaletteTooltip(paletteIndex, tileX, tileY) {
+function updatePaletteTooltip(paletteIndex, tileX, tileY, isEmpty = false) {
   const tooltip = document.querySelector("#palette-tooltip");
   if (!tooltip) {
     return;
@@ -418,6 +497,12 @@ function updatePaletteTooltip(paletteIndex, tileX, tileY) {
 
   if (paletteIndex === null) {
     tooltip.innerHTML = "";
+    return;
+  }
+
+  // Show empty tile indicator
+  if (isEmpty) {
+    tooltip.innerHTML = `<span class="palette-tooltip__label">Tuile (${tileX},${tileY}) — vide</span>`;
     return;
   }
 
@@ -435,6 +520,471 @@ function updatePaletteTooltip(paletteIndex, tileX, tileY) {
   `;
 }
 
+// ===== Curve Editor =====
+
+function initCurveEditor() {
+  const canvas = document.querySelector("#curve-canvas");
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d");
+  let isDragging = false;
+
+  drawCurve(ctx);
+
+  canvas.addEventListener("mousedown", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Find closest point (within 12px radius)
+    const pointIndex = findClosestPoint(x, y);
+    if (pointIndex !== -1) {
+      state.curveSelectedPoint = pointIndex;
+      isDragging = true;
+      canvas.style.cursor = "grabbing";
+    }
+  });
+
+  canvas.addEventListener("mousemove", (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(255, e.clientX - rect.left));
+    const y = Math.max(0, Math.min(255, e.clientY - rect.top));
+
+    if (isDragging && state.curveSelectedPoint !== null) {
+      const point = state.curvePoints[state.curveSelectedPoint];
+      // First and last points: x is fixed (0 and 255)
+      if (state.curveSelectedPoint === 0) {
+        point.y = 255 - y;
+      } else if (state.curveSelectedPoint === state.curvePoints.length - 1) {
+        point.y = 255 - y;
+      } else {
+        // Middle points: x can move within bounds of neighbors
+        const prevPoint = state.curvePoints[state.curveSelectedPoint - 1];
+        const nextPoint = state.curvePoints[state.curveSelectedPoint + 1];
+        point.x = Math.max(prevPoint.x + 1, Math.min(nextPoint.x - 1, x));
+        point.y = 255 - y;
+      }
+      drawCurve(ctx);
+    }
+
+    // Update info display
+    updateCurveInfo(x, 255 - y);
+
+    // Change cursor if hovering over a point
+    if (!isDragging) {
+      const pointIndex = findClosestPoint(x, y);
+      canvas.style.cursor = pointIndex !== -1 ? "grab" : "crosshair";
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (isDragging) {
+      isDragging = false;
+      state.curveSelectedPoint = null;
+      canvas.style.cursor = "crosshair";
+    }
+  });
+
+  // Reset button
+  document.querySelector("#curve-reset")?.addEventListener("click", () => {
+    resetCurve();
+    drawCurve(ctx);
+    saveSettings();
+  });
+}
+
+function findClosestPoint(x, y) {
+  const threshold = 12;
+  for (let i = 0; i < state.curvePoints.length; i++) {
+    const point = state.curvePoints[i];
+    const canvasY = 255 - point.y;
+    const distance = Math.sqrt((x - point.x) ** 2 + (y - canvasY) ** 2);
+    if (distance < threshold) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function resetCurve() {
+  state.curvePoints = [
+    { x: 0, y: 0 },
+    { x: 32, y: 32 },
+    { x: 64, y: 64 },
+    { x: 96, y: 96 },
+    { x: 128, y: 128 },
+    { x: 160, y: 160 },
+    { x: 192, y: 192 },
+    { x: 224, y: 224 },
+    { x: 255, y: 255 },
+  ];
+}
+
+function drawCurve(ctx) {
+  const width = 256;
+  const height = 256;
+
+  // Clear canvas
+  ctx.fillStyle = "#0d1016";
+  ctx.fillRect(0, 0, width, height);
+
+  // Draw grid lines for RGB333 thresholds
+  ctx.strokeStyle = "#2a3142";
+  ctx.lineWidth = 1;
+
+  // Vertical grid lines at threshold positions
+  for (let i = 32; i < 256; i += 32) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, height);
+    ctx.stroke();
+  }
+
+  // Horizontal grid lines at output levels
+  for (let i = 32; i < 256; i += 32) {
+    ctx.beginPath();
+    ctx.moveTo(0, i);
+    ctx.lineTo(width, i);
+    ctx.stroke();
+  }
+
+  // Draw diagonal reference line
+  ctx.strokeStyle = "#3a4152";
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(0, height);
+  ctx.lineTo(width, 0);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Draw the curve
+  ctx.strokeStyle = "#4f76ff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(state.curvePoints[0].x, height - state.curvePoints[0].y);
+  for (let i = 1; i < state.curvePoints.length; i++) {
+    ctx.lineTo(state.curvePoints[i].x, height - state.curvePoints[i].y);
+  }
+  ctx.stroke();
+
+  // Draw control points
+  state.curvePoints.forEach((point, index) => {
+    const canvasY = height - point.y;
+
+    // Outer ring
+    ctx.fillStyle = index === state.curveSelectedPoint ? "#6a4bff" : "#4f76ff";
+    ctx.beginPath();
+    ctx.arc(point.x, canvasY, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Inner dot
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(point.x, canvasY, 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Draw RGB333 level labels on left side
+  ctx.fillStyle = "#6f7a8c";
+  ctx.font = "9px monospace";
+  ctx.textAlign = "left";
+  for (let i = 0; i < 8; i++) {
+    const y = height - (i * 32 + 16);
+    ctx.fillText(i.toString(), 4, y + 3);
+  }
+}
+
+function updateCurveInfo(inputVal, outputVal) {
+  const info = document.querySelector("#curve-info");
+  if (info) {
+    const inputLevel = Math.floor(inputVal / 32);
+    const outputLevel = Math.floor(outputVal / 32);
+    info.textContent = `Entrée: ${inputVal} (niveau ${Math.min(7, inputLevel)}) → Sortie: ${outputVal} (niveau ${Math.min(7, outputLevel)})`;
+  }
+}
+
+function getCurveLUT() {
+  // Generate a 256-entry lookup table from the curve points
+  const lut = new Array(256);
+
+  for (let i = 0; i < 256; i++) {
+    // Find which segment this input value falls into
+    let segmentIndex = 0;
+    for (let j = 1; j < state.curvePoints.length; j++) {
+      if (i <= state.curvePoints[j].x) {
+        segmentIndex = j - 1;
+        break;
+      }
+    }
+
+    const p0 = state.curvePoints[segmentIndex];
+    const p1 = state.curvePoints[segmentIndex + 1];
+
+    // Linear interpolation
+    const t = (i - p0.x) / (p1.x - p0.x);
+    lut[i] = Math.round(p0.y + t * (p1.y - p0.y));
+  }
+
+  return lut;
+}
+
+// ===== End Curve Editor =====
+
+// ===== Export Functions =====
+
+function getVramAddress() {
+  const input = document.querySelector("#vram-address");
+  if (!input) return 0x4000;
+
+  let value = input.value.trim().toUpperCase();
+
+  // Remove $ or 0x prefix
+  if (value.startsWith("$")) {
+    value = value.substring(1);
+  } else if (value.startsWith("0X")) {
+    value = value.substring(2);
+  }
+
+  // Parse as hex
+  const parsed = parseInt(value, 16);
+  return isNaN(parsed) ? 0x4000 : parsed;
+}
+
+async function exportPlainText() {
+  if (!state.outputImageBase64 || state.palettes.length === 0) {
+    console.warn("Aucune image convertie à exporter");
+    return;
+  }
+
+  try {
+    // Convert base64 to byte array
+    const binaryString = atob(state.outputImageBase64);
+    const imageData = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      imageData[i] = binaryString.charCodeAt(i);
+    }
+
+    const vramAddress = getVramAddress();
+
+    // Call Rust export function
+    const result = await invoke("export_plain_text", {
+      imageData: Array.from(imageData),
+      palettes: state.palettes,
+      tilePaletteMap: state.tilePaletteMap,
+      emptyTiles: state.emptyTiles,
+      vramBaseAddress: vramAddress,
+    });
+
+    // Show save dialog
+    const { save } = window.__TAURI__.dialog;
+    const filePath = await save({
+      defaultPath: "export.asm",
+      filters: [
+        { name: "Assembly", extensions: ["asm", "inc", "s"] },
+        { name: "Text", extensions: ["txt"] },
+      ],
+    });
+
+    if (filePath) {
+      // Write file
+      const { writeTextFile } = window.__TAURI__.fs;
+      await writeTextFile(filePath, result.plain_text);
+      console.info(`Exporté: ${result.unique_tile_count} tuiles uniques (${result.tile_count} total)`);
+    }
+  } catch (error) {
+    console.error("Erreur d'export:", error);
+  }
+}
+
+async function exportBinaries() {
+  if (!state.outputImageBase64 || state.palettes.length === 0) {
+    console.warn("Aucune image convertie à exporter");
+    return;
+  }
+
+  try {
+    // Convert base64 to byte array
+    const binaryString = atob(state.outputImageBase64);
+    const imageData = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      imageData[i] = binaryString.charCodeAt(i);
+    }
+
+    const vramAddress = getVramAddress();
+
+    // Call Rust export function
+    const result = await invoke("export_binaries", {
+      imageData: Array.from(imageData),
+      palettes: state.palettes,
+      tilePaletteMap: state.tilePaletteMap,
+      emptyTiles: state.emptyTiles,
+      vramBaseAddress: vramAddress,
+    });
+
+    // Show single save dialog - user picks base filename
+    const { save } = window.__TAURI__.dialog;
+    const { writeFile } = window.__TAURI__.fs;
+
+    const basePath = await save({
+      defaultPath: "export.bat",
+      filters: [{ name: "BAT file", extensions: ["bat"] }],
+    });
+
+    if (!basePath) {
+      return; // User cancelled
+    }
+
+    // Derive the 3 filenames from the base path
+    // Remove extension and add .bat, .tile, .pal
+    const baseWithoutExt = basePath.replace(/\.[^.]+$/, "");
+    const batPath = baseWithoutExt + ".bat";
+    const tilePath = baseWithoutExt + ".tile";
+    const palPath = baseWithoutExt + ".pal";
+
+    // Write all 3 files
+    await writeFile(batPath, new Uint8Array(result.bat));
+    await writeFile(tilePath, new Uint8Array(result.tiles));
+    await writeFile(palPath, new Uint8Array(result.palettes));
+
+    console.info(`Binaires exportés: ${batPath}, ${tilePath}, ${palPath}`);
+    console.info(`${result.unique_tile_count} tuiles uniques (${result.tile_count} total)`);
+  } catch (error) {
+    console.error("Erreur d'export binaire:", error);
+  }
+}
+
+// ===== End Export Functions =====
+
+// ===== Settings Persistence =====
+
+const SETTINGS_KEY = "image2pce-settings";
+
+function saveSettings() {
+  const settings = {
+    resizeMethod: document.querySelector("#resize-method")?.value,
+    paletteCount: document.querySelector("#palette-count")?.value,
+    color0Mode: document.querySelector("#color0-mode")?.value,
+    ditherMode: document.querySelector("#dither-mode")?.value,
+    backgroundColor: document.querySelector("#background-color")?.value,
+    transparency: document.querySelector("#transparency")?.checked,
+    keepRatio: document.querySelector("#keep-ratio")?.checked,
+    ditherMask: document.querySelector("#dither-mask")?.checked,
+    vramAddress: document.querySelector("#vram-address")?.value,
+    zoomInput: document.querySelector("#zoom-input")?.value,
+    zoomOutput: document.querySelector("#zoom-output")?.value,
+    curvePoints: state.curvePoints,
+    fixedColor0: state.fixedColor0,
+  };
+
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch (e) {
+    console.warn("Impossible de sauvegarder les réglages:", e);
+  }
+}
+
+function loadSettings() {
+  try {
+    const saved = localStorage.getItem(SETTINGS_KEY);
+    if (!saved) return;
+
+    const settings = JSON.parse(saved);
+
+    // Restore form values
+    if (settings.resizeMethod) {
+      const el = document.querySelector("#resize-method");
+      if (el) el.value = settings.resizeMethod;
+    }
+    if (settings.paletteCount) {
+      const el = document.querySelector("#palette-count");
+      if (el) el.value = settings.paletteCount;
+    }
+    if (settings.color0Mode) {
+      const el = document.querySelector("#color0-mode");
+      if (el) el.value = settings.color0Mode;
+    }
+    if (settings.ditherMode) {
+      const el = document.querySelector("#dither-mode");
+      if (el) el.value = settings.ditherMode;
+    }
+    if (settings.backgroundColor) {
+      const el = document.querySelector("#background-color");
+      if (el) el.value = settings.backgroundColor;
+    }
+    if (settings.transparency !== undefined) {
+      const el = document.querySelector("#transparency");
+      if (el) el.checked = settings.transparency;
+    }
+    if (settings.keepRatio !== undefined) {
+      const el = document.querySelector("#keep-ratio");
+      if (el) el.checked = settings.keepRatio;
+    }
+    if (settings.ditherMask !== undefined) {
+      const el = document.querySelector("#dither-mask");
+      if (el) el.checked = settings.ditherMask;
+    }
+    if (settings.vramAddress) {
+      const el = document.querySelector("#vram-address");
+      if (el) el.value = settings.vramAddress;
+    }
+    if (settings.zoomInput) {
+      const el = document.querySelector("#zoom-input");
+      if (el) el.value = settings.zoomInput;
+    }
+    if (settings.zoomOutput) {
+      const el = document.querySelector("#zoom-output");
+      if (el) el.value = settings.zoomOutput;
+    }
+
+    // Restore state values
+    if (settings.curvePoints && Array.isArray(settings.curvePoints)) {
+      state.curvePoints = settings.curvePoints;
+    }
+    if (settings.fixedColor0) {
+      state.fixedColor0 = settings.fixedColor0;
+    }
+
+  } catch (e) {
+    console.warn("Impossible de charger les réglages:", e);
+  }
+}
+
+function setupSettingsAutoSave() {
+  // Save on any input change
+  const inputs = [
+    "#resize-method",
+    "#palette-count",
+    "#color0-mode",
+    "#dither-mode",
+    "#background-color",
+    "#transparency",
+    "#keep-ratio",
+    "#dither-mask",
+    "#vram-address",
+    "#zoom-input",
+    "#zoom-output",
+  ];
+
+  inputs.forEach((selector) => {
+    const el = document.querySelector(selector);
+    if (el) {
+      el.addEventListener("change", saveSettings);
+      el.addEventListener("input", saveSettings);
+    }
+  });
+
+  // Save curve changes on mouseup
+  const curveCanvas = document.querySelector("#curve-canvas");
+  if (curveCanvas) {
+    curveCanvas.addEventListener("mouseup", saveSettings);
+  }
+
+  // Save on window close
+  window.addEventListener("beforeunload", saveSettings);
+}
+
+// ===== End Settings Persistence =====
+
 function bindActions() {
   document.querySelector("#open-image").addEventListener("click", openImage);
   document.querySelector("#run-conversion").addEventListener("click", runConversion);
@@ -445,12 +995,8 @@ function bindActions() {
   document.querySelector("#save-image").addEventListener("click", () => {
     console.info("Sauvegarde image non implémentée");
   });
-  document.querySelector("#save-binaries").addEventListener("click", () => {
-    console.info("Sauvegarde binaire non implémentée");
-  });
-  document.querySelector("#save-text").addEventListener("click", () => {
-    console.info("Sauvegarde texte non implémentée");
-  });
+  document.querySelector("#save-binaries").addEventListener("click", exportBinaries);
+  document.querySelector("#save-text").addEventListener("click", exportPlainText);
 
   // Color0 mode change
   document.querySelector("#color0-mode").addEventListener("change", updateColor0Preview);
@@ -496,6 +1042,20 @@ function bindActions() {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  // Load saved settings before binding actions
+  loadSettings();
+
   bindActions();
   updateColor0Preview();
+  initCurveEditor();
+
+  // Redraw curve with loaded settings
+  const curveCanvas = document.querySelector("#curve-canvas");
+  if (curveCanvas) {
+    const ctx = curveCanvas.getContext("2d");
+    drawCurve(ctx);
+  }
+
+  // Setup auto-save for settings
+  setupSettingsAutoSave();
 });

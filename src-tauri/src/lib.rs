@@ -31,6 +31,9 @@ struct ConversionResult {
     preview_base64: String,
     palettes: Vec<Vec<String>>,
     tile_palette_map: Vec<usize>,
+    empty_tiles: Vec<bool>,
+    tile_count: usize,
+    unique_tile_count: usize,
 }
 
 #[tauri::command]
@@ -42,6 +45,7 @@ fn run_conversion(
     dither_mode: String,
     background_color: String,
     keep_ratio: bool,
+    curve_lut: Vec<u8>,
 ) -> Result<ConversionResult, String> {
     // Emit: loading image
     let _ = app.emit("conversion-progress", ProgressEvent {
@@ -66,14 +70,24 @@ fn run_conversion(
         &background_color,
     )?;
 
+    // Emit: applying curve
+    let _ = app.emit("conversion-progress", ProgressEvent {
+        percent: 25,
+        stage: "Application de la courbe...".to_string(),
+    });
+
+    // Apply curve LUT to adjust color levels before quantization
+    let curved = apply_curve_lut(&resized.to_rgba8(), &curve_lut);
+    let curved_image = DynamicImage::ImageRgba8(curved);
+
     // Emit: quantization
     let _ = app.emit("conversion-progress", ProgressEvent {
-        percent: 30,
+        percent: 35,
         stage: "Quantification RGB333...".to_string(),
     });
 
     // First pass: quantize to RGB333 WITHOUT dithering to build palettes
-    let quantized_for_palette = quantize_rgb333(resized.clone(), palette_count, "none", &background_color)?;
+    let quantized_for_palette = quantize_rgb333(curved_image.clone(), palette_count, "none", &background_color)?;
 
     // Emit: palette building
     let _ = app.emit("conversion-progress", ProgressEvent {
@@ -93,9 +107,9 @@ fn run_conversion(
         stage: "Application des palettes...".to_string(),
     });
 
-    // Second pass: apply dithering with the actual tile palettes
+    // Second pass: apply dithering with the actual tile palettes (using curved image)
     let preview = apply_tile_palettes_with_dither(
-        &resized.to_rgba8(),
+        &curved_image.to_rgba8(),
         &palette_result,
         &dither_mode,
     )?;
@@ -107,9 +121,35 @@ fn run_conversion(
     });
 
     let mut output = Vec::new();
-    DynamicImage::ImageRgba8(preview)
+    DynamicImage::ImageRgba8(preview.clone())
         .write_to(&mut std::io::Cursor::new(&mut output), image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
+
+    // Calculate unique tiles for stats
+    let (width, height) = preview.dimensions();
+    let tiles_x = width / 8;
+    let tiles_y = height / 8;
+    let total_tiles = (tiles_x * tiles_y) as usize;
+
+    // Empty tile is always first (32 bytes of zeros = all pixels are color index 0)
+    let empty_tile: [u8; 32] = [0u8; 32];
+    let mut unique_tiles: Vec<[u8; 32]> = vec![empty_tile];
+
+    for tile_idx in 0..total_tiles {
+        // Skip empty tiles - they all use the first unique tile
+        if palette_result.empty_tiles.get(tile_idx).copied().unwrap_or(false) {
+            continue;
+        }
+
+        let tile_x = (tile_idx % tiles_x as usize) as u32;
+        let tile_y = (tile_idx / tiles_x as usize) as u32;
+        let palette_idx = palette_result.tile_palette_map.get(tile_idx).copied().unwrap_or(0);
+        let palette = palette_result.palettes.get(palette_idx).cloned().unwrap_or_default();
+        let tile_data = encode_tile_planar(&preview, tile_x, tile_y, &palette);
+        if !unique_tiles.iter().any(|t| *t == tile_data) {
+            unique_tiles.push(tile_data);
+        }
+    }
 
     // Emit: done
     let _ = app.emit("conversion-progress", ProgressEvent {
@@ -121,6 +161,9 @@ fn run_conversion(
         preview_base64: base64::engine::general_purpose::STANDARD.encode(output),
         palettes: palette_result.palettes,
         tile_palette_map: palette_result.tile_palette_map,
+        empty_tiles: palette_result.empty_tiles,
+        tile_count: total_tiles,
+        unique_tile_count: unique_tiles.len(),
     })
 }
 
@@ -193,6 +236,24 @@ fn quantize_channel_with_levels(value: u8, levels: u8) -> u8 {
     ((level / max) * 255.0).round() as u8
 }
 
+fn apply_curve_lut(image: &RgbaImage, lut: &[u8]) -> RgbaImage {
+    let mut output = image.clone();
+
+    // Ensure LUT has 256 entries, use identity if not
+    if lut.len() != 256 {
+        return output;
+    }
+
+    for pixel in output.pixels_mut() {
+        pixel.0[0] = lut[pixel.0[0] as usize];
+        pixel.0[1] = lut[pixel.0[1] as usize];
+        pixel.0[2] = lut[pixel.0[2] as usize];
+        // Alpha channel unchanged
+    }
+
+    output
+}
+
 fn parse_hex_color(value: &str) -> Option<Rgba<u8>> {
     let cleaned = value.trim_start_matches('#');
     if cleaned.len() != 6 {
@@ -227,6 +288,7 @@ struct TilePaletteResult {
     palettes: Vec<Vec<String>>,
     tile_palette_map: Vec<usize>,
     palette_colors: Vec<Vec<String>>,
+    empty_tiles: Vec<bool>,
 }
 
 /// Tile info with colors and their pixel counts
@@ -248,9 +310,26 @@ fn build_palettes_for_tiles(
         .map(|color| format!("#{:02X}{:02X}{:02X}", color.0[0], color.0[1], color.0[2]))
         .unwrap_or_else(|| "#000000".to_string());
 
-    // Collect global color frequencies across all tiles
+    // Detect empty tiles (tiles containing ONLY the background color)
+    let empty_tiles: Vec<bool> = tile_infos
+        .iter()
+        .map(|ti| {
+            // A tile is empty if it has only one color and that color is the background
+            ti.colors.len() == 1 && ti.colors[0] == global_color0
+        })
+        .collect();
+
+    // Filter out empty tiles for palette building
+    let non_empty_tile_infos: Vec<&TileColorInfo> = tile_infos
+        .iter()
+        .enumerate()
+        .filter(|(idx, _)| !empty_tiles[*idx])
+        .map(|(_, ti)| ti)
+        .collect();
+
+    // Collect global color frequencies across non-empty tiles only
     let mut global_color_freq: HashMap<String, usize> = HashMap::new();
-    for tile_info in tile_infos.iter() {
+    for tile_info in non_empty_tile_infos.iter() {
         for (color, count) in tile_info.color_counts.iter() {
             *global_color_freq.entry(color.clone()).or_insert(0) += count;
         }
@@ -259,22 +338,35 @@ fn build_palettes_for_tiles(
     // Extract just the color lists for compatibility
     let tiles: Vec<Vec<String>> = tile_infos.iter().map(|ti| ti.colors.clone()).collect();
 
-    // Seed initial palettes
-    let mut clusters = seed_palette_clusters_v2(&tile_infos, palette_slots, &global_color0, &global_color_freq);
+    // Seed initial palettes using only non-empty tiles
+    let non_empty_infos_owned: Vec<TileColorInfo> = non_empty_tile_infos
+        .iter()
+        .map(|ti| TileColorInfo {
+            colors: ti.colors.clone(),
+            color_counts: ti.color_counts.clone(),
+        })
+        .collect();
+    let mut clusters = seed_palette_clusters_v2(&non_empty_infos_owned, palette_slots, &global_color0, &global_color_freq);
     let mut tile_palette_map = vec![0usize; tiles.len()];
 
-    // Iterate to refine clustering
+    // Iterate to refine clustering (only for non-empty tiles)
     for _ in 0..6 {
-        // Assign each tile to best matching palette
+        // Assign each non-empty tile to best matching palette
         for (tile_index, tile_info) in tile_infos.iter().enumerate() {
-            let palette_index = best_cluster_for_tile(&clusters, &tile_info.colors, &global_color0);
-            tile_palette_map[tile_index] = palette_index;
+            if empty_tiles[tile_index] {
+                // Empty tiles stay at palette 0 (which has color0)
+                tile_palette_map[tile_index] = 0;
+            } else {
+                let palette_index = best_cluster_for_tile(&clusters, &tile_info.colors, &global_color0);
+                tile_palette_map[tile_index] = palette_index;
+            }
         }
 
-        // Rebuild palettes from assigned tiles, using frequency-weighted selection
-        clusters = rebuild_clusters_with_frequency(
+        // Rebuild palettes from assigned non-empty tiles only
+        clusters = rebuild_clusters_with_frequency_filtered(
             &tile_infos,
             &tile_palette_map,
+            &empty_tiles,
             palette_slots,
             &global_color0,
         );
@@ -319,6 +411,7 @@ fn build_palettes_for_tiles(
         palettes,
         tile_palette_map,
         palette_colors,
+        empty_tiles,
     })
 }
 
@@ -569,6 +662,53 @@ fn rebuild_clusters_with_frequency(
     palettes
 }
 
+fn rebuild_clusters_with_frequency_filtered(
+    tile_infos: &[TileColorInfo],
+    tile_palette_map: &[usize],
+    empty_tiles: &[bool],
+    palette_slots: usize,
+    color0: &str,
+) -> Vec<Vec<String>> {
+    use std::collections::HashMap;
+
+    let mut palette_color_freq: Vec<HashMap<String, usize>> = vec![HashMap::new(); palette_slots];
+
+    // Accumulate color frequencies for each palette from assigned non-empty tiles only
+    for (idx, (tile_info, palette_index)) in tile_infos.iter().zip(tile_palette_map.iter()).enumerate() {
+        // Skip empty tiles
+        if empty_tiles[idx] {
+            continue;
+        }
+        for (color, count) in tile_info.color_counts.iter() {
+            *palette_color_freq[*palette_index].entry(color.clone()).or_insert(0) += count;
+        }
+    }
+
+    // Build palettes by selecting the most frequent colors (keeping originals, no averaging)
+    let mut palettes: Vec<Vec<String>> = Vec::new();
+
+    for freq_map in palette_color_freq.iter() {
+        // Sort colors by frequency (most used first)
+        let mut color_freq: Vec<_> = freq_map.iter().collect();
+        color_freq.sort_by(|a, b| b.1.cmp(a.1));
+
+        let mut palette = vec![color0.to_string()];
+
+        for (color, _) in color_freq.iter() {
+            if *color != color0 && !palette.contains(color) {
+                palette.push((*color).clone());
+            }
+            if palette.len() >= 16 {
+                break;
+            }
+        }
+
+        palettes.push(palette);
+    }
+
+    palettes
+}
+
 #[allow(dead_code)]
 fn rebuild_clusters(
     tiles: &[Vec<String>],
@@ -699,19 +839,17 @@ fn apply_tile_palettes_with_dither(
     let tiles_x = width / 8;
     let tiles_y = height / 8;
 
-    // Create error buffer for Floyd-Steinberg dithering
-    // We process the entire image but use per-tile palettes
-    let mut error_r: Vec<Vec<f32>> = vec![vec![0.0; width as usize + 2]; height as usize + 1];
-    let mut error_g: Vec<Vec<f32>> = vec![vec![0.0; width as usize + 2]; height as usize + 1];
-    let mut error_b: Vec<Vec<f32>> = vec![vec![0.0; width as usize + 2]; height as usize + 1];
-
     let mut output = image.clone();
 
-    for py in 0..height {
-        for px in 0..width {
-            let tile_x = px / 8;
-            let tile_y = py / 8;
+    // Process each tile independently to avoid cross-tile dithering artifacts
+    for tile_y in 0..tiles_y {
+        for tile_x in 0..tiles_x {
             let tile_index = (tile_y * tiles_x + tile_x) as usize;
+
+            // Skip empty tiles - they already contain the background color
+            if palette_result.empty_tiles.get(tile_index).copied().unwrap_or(false) {
+                continue;
+            }
 
             let palette_index = palette_result
                 .tile_palette_map
@@ -724,64 +862,88 @@ fn apply_tile_palettes_with_dither(
                 .cloned()
                 .unwrap_or_default();
 
-            let pixel = output.get_pixel(px, py);
-            let [r, g, b, a] = pixel.0;
+            // Per-tile error buffer for Floyd-Steinberg (8x8 + padding)
+            let mut error_r: [[f32; 10]; 9] = [[0.0; 10]; 9];
+            let mut error_g: [[f32; 10]; 9] = [[0.0; 10]; 9];
+            let mut error_b: [[f32; 10]; 9] = [[0.0; 10]; 9];
 
-            // Add accumulated error for dithering
-            let (adj_r, adj_g, adj_b) = if dither_mode == "floyd" {
-                let er = error_r[py as usize][px as usize + 1];
-                let eg = error_g[py as usize][px as usize + 1];
-                let eb = error_b[py as usize][px as usize + 1];
-                (
-                    (r as f32 + er).clamp(0.0, 255.0),
-                    (g as f32 + eg).clamp(0.0, 255.0),
-                    (b as f32 + eb).clamp(0.0, 255.0),
-                )
-            } else {
-                (r as f32, g as f32, b as f32)
-            };
+            // Process pixels within this tile
+            for ly in 0..8u32 {
+                for lx in 0..8u32 {
+                    let px = tile_x * 8 + lx;
+                    let py = tile_y * 8 + ly;
 
-            // Find nearest color in tile's palette
-            let color = format!("#{:02X}{:02X}{:02X}", adj_r as u8, adj_g as u8, adj_b as u8);
-            let mapped = nearest_palette_color(&color, &palette)
-                .unwrap_or_else(|| format!("#{:02X}{:02X}{:02X}", r, g, b));
-            let mapped_rgba = parse_hex_color(&mapped).unwrap_or(Rgba([r, g, b, a]));
+                    let pixel = image.get_pixel(px, py);
+                    let [r, g, b, a] = pixel.0;
 
-            output.put_pixel(px, py, mapped_rgba);
+                    // Add accumulated error for dithering
+                    let (adj_r, adj_g, adj_b) = if dither_mode == "floyd" {
+                        let er = error_r[ly as usize][lx as usize + 1];
+                        let eg = error_g[ly as usize][lx as usize + 1];
+                        let eb = error_b[ly as usize][lx as usize + 1];
+                        (
+                            (r as f32 + er).clamp(0.0, 255.0),
+                            (g as f32 + eg).clamp(0.0, 255.0),
+                            (b as f32 + eb).clamp(0.0, 255.0),
+                        )
+                    } else {
+                        (r as f32, g as f32, b as f32)
+                    };
 
-            // Distribute error for Floyd-Steinberg
-            if dither_mode == "floyd" {
-                let quant_r = mapped_rgba.0[0] as f32;
-                let quant_g = mapped_rgba.0[1] as f32;
-                let quant_b = mapped_rgba.0[2] as f32;
+                    // Find nearest color in tile's palette
+                    let color = format!("#{:02X}{:02X}{:02X}", adj_r as u8, adj_g as u8, adj_b as u8);
+                    let mapped = nearest_palette_color(&color, &palette)
+                        .unwrap_or_else(|| format!("#{:02X}{:02X}{:02X}", r, g, b));
+                    let mapped_rgba = parse_hex_color(&mapped).unwrap_or(Rgba([r, g, b, a]));
 
-                let err_r = adj_r - quant_r;
-                let err_g = adj_g - quant_g;
-                let err_b = adj_b - quant_b;
+                    output.put_pixel(px, py, mapped_rgba);
 
-                let px_idx = px as usize + 1;
-                let py_idx = py as usize;
+                    // Distribute error for Floyd-Steinberg within tile boundaries
+                    if dither_mode == "floyd" {
+                        let quant_r = mapped_rgba.0[0] as f32;
+                        let quant_g = mapped_rgba.0[1] as f32;
+                        let quant_b = mapped_rgba.0[2] as f32;
 
-                // Floyd-Steinberg error distribution: 7/16, 3/16, 5/16, 1/16
-                // Right pixel (7/16)
-                error_r[py_idx][px_idx + 1] += err_r * 7.0 / 16.0;
-                error_g[py_idx][px_idx + 1] += err_g * 7.0 / 16.0;
-                error_b[py_idx][px_idx + 1] += err_b * 7.0 / 16.0;
+                        let err_r = adj_r - quant_r;
+                        let err_g = adj_g - quant_g;
+                        let err_b = adj_b - quant_b;
 
-                // Bottom-left pixel (3/16)
-                error_r[py_idx + 1][px_idx - 1] += err_r * 3.0 / 16.0;
-                error_g[py_idx + 1][px_idx - 1] += err_g * 3.0 / 16.0;
-                error_b[py_idx + 1][px_idx - 1] += err_b * 3.0 / 16.0;
+                        let lx_idx = lx as usize + 1;
+                        let ly_idx = ly as usize;
 
-                // Bottom pixel (5/16)
-                error_r[py_idx + 1][px_idx] += err_r * 5.0 / 16.0;
-                error_g[py_idx + 1][px_idx] += err_g * 5.0 / 16.0;
-                error_b[py_idx + 1][px_idx] += err_b * 5.0 / 16.0;
+                        // Floyd-Steinberg error distribution: 7/16, 3/16, 5/16, 1/16
+                        // Only distribute to pixels within tile bounds
 
-                // Bottom-right pixel (1/16)
-                error_r[py_idx + 1][px_idx + 1] += err_r * 1.0 / 16.0;
-                error_g[py_idx + 1][px_idx + 1] += err_g * 1.0 / 16.0;
-                error_b[py_idx + 1][px_idx + 1] += err_b * 1.0 / 16.0;
+                        // Right pixel (7/16) - only if not at right edge of tile
+                        if lx < 7 {
+                            error_r[ly_idx][lx_idx + 1] += err_r * 7.0 / 16.0;
+                            error_g[ly_idx][lx_idx + 1] += err_g * 7.0 / 16.0;
+                            error_b[ly_idx][lx_idx + 1] += err_b * 7.0 / 16.0;
+                        }
+
+                        // Bottom row - only if not at bottom edge of tile
+                        if ly < 7 {
+                            // Bottom-left pixel (3/16)
+                            if lx > 0 {
+                                error_r[ly_idx + 1][lx_idx - 1] += err_r * 3.0 / 16.0;
+                                error_g[ly_idx + 1][lx_idx - 1] += err_g * 3.0 / 16.0;
+                                error_b[ly_idx + 1][lx_idx - 1] += err_b * 3.0 / 16.0;
+                            }
+
+                            // Bottom pixel (5/16)
+                            error_r[ly_idx + 1][lx_idx] += err_r * 5.0 / 16.0;
+                            error_g[ly_idx + 1][lx_idx] += err_g * 5.0 / 16.0;
+                            error_b[ly_idx + 1][lx_idx] += err_b * 5.0 / 16.0;
+
+                            // Bottom-right pixel (1/16)
+                            if lx < 7 {
+                                error_r[ly_idx + 1][lx_idx + 1] += err_r * 1.0 / 16.0;
+                                error_g[ly_idx + 1][lx_idx + 1] += err_g * 1.0 / 16.0;
+                                error_b[ly_idx + 1][lx_idx + 1] += err_b * 1.0 / 16.0;
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -869,12 +1031,370 @@ fn find_global_color0(tiles: &[Vec<String>]) -> Option<String> {
     counts.into_iter().max_by_key(|(_, count)| *count).map(|(color, _)| color)
 }
 
+// ===== PC-Engine Export Functions =====
+
+#[derive(Serialize)]
+struct ExportResult {
+    plain_text: String,
+    tile_count: usize,
+    unique_tile_count: usize,
+    bat_size: usize,
+}
+
+/// Export converted image as PC-Engine assembly data
+#[tauri::command]
+fn export_plain_text(
+    image_data: Vec<u8>,  // PNG image as bytes
+    palettes: Vec<Vec<String>>,
+    tile_palette_map: Vec<usize>,
+    empty_tiles: Vec<bool>,
+    vram_base_address: u32,
+) -> Result<ExportResult, String> {
+    // Decode PNG image
+    let img = image::load_from_memory(&image_data)
+        .map_err(|e| format!("Failed to decode image: {}", e))?
+        .to_rgba8();
+
+    let (width, height) = img.dimensions();
+    let tiles_x = width / 8;
+    let tiles_y = height / 8;
+    let total_tiles = (tiles_x * tiles_y) as usize;
+
+    // Build unique tiles and mapping
+    // Empty tile is always first (32 bytes of zeros = all pixels are color index 0)
+    let empty_tile: [u8; 32] = [0u8; 32];
+    let mut unique_tiles: Vec<[u8; 32]> = vec![empty_tile];
+    let mut tile_to_unique: Vec<usize> = Vec::with_capacity(total_tiles);
+
+    for tile_idx in 0..total_tiles {
+        // Empty tiles all point to the first tile (index 0)
+        if empty_tiles.get(tile_idx).copied().unwrap_or(false) {
+            tile_to_unique.push(0);
+            continue;
+        }
+
+        let tile_x = (tile_idx % tiles_x as usize) as u32;
+        let tile_y = (tile_idx / tiles_x as usize) as u32;
+
+        // Get palette for this tile
+        let palette_idx = tile_palette_map.get(tile_idx).copied().unwrap_or(0);
+        let palette = palettes.get(palette_idx).cloned().unwrap_or_default();
+
+        // Encode tile to planar format
+        let tile_data = encode_tile_planar(&img, tile_x, tile_y, &palette);
+
+        // Check for duplicate
+        let existing_idx = unique_tiles.iter().position(|t| *t == tile_data);
+        match existing_idx {
+            Some(idx) => tile_to_unique.push(idx),
+            None => {
+                tile_to_unique.push(unique_tiles.len());
+                unique_tiles.push(tile_data);
+            }
+        }
+    }
+
+    // Generate output text
+    let mut output = String::new();
+
+    // Header comment
+    output.push_str("; ========================================\n");
+    output.push_str("; PC-Engine Graphics Data\n");
+    output.push_str("; Generated by Image2PCE II\n");
+    output.push_str("; ========================================\n\n");
+
+    // Stats
+    output.push_str(&format!("; Image: {}x{} pixels ({} tiles)\n", width, height, total_tiles));
+    output.push_str(&format!("; Unique tiles: {} (saved {} duplicates)\n", unique_tiles.len(), total_tiles - unique_tiles.len()));
+    output.push_str(&format!("; VRAM base address: ${:04X}\n", vram_base_address));
+    output.push_str(&format!("; Tiles size: {} bytes\n", unique_tiles.len() * 32));
+    output.push_str(&format!("; BAT size: {} bytes\n\n", total_tiles * 2));
+
+    // BAT (Block Address Table)
+    output.push_str("; ----------------------------------------\n");
+    output.push_str("; BAT - Block Address Table\n");
+    output.push_str("; Format: PPPP AAAA AAAA AAAA (P=palette, A=address>>4)\n");
+    output.push_str("; ----------------------------------------\n");
+    output.push_str("BAT:\n");
+
+    for (tile_idx, &unique_idx) in tile_to_unique.iter().enumerate() {
+        if tile_idx % tiles_x as usize == 0 {
+            if tile_idx > 0 {
+                output.push('\n');
+            }
+            output.push_str(&format!("  ; Row {}\n", tile_idx / tiles_x as usize));
+        }
+
+        // Empty tiles use palette 0
+        let palette_idx = if empty_tiles.get(tile_idx).copied().unwrap_or(false) {
+            0u16
+        } else {
+            tile_palette_map.get(tile_idx).copied().unwrap_or(0) as u16
+        };
+        // Tile address = base + (unique_tile_index * 32)
+        // BAT address field = (tile_address >> 4) & 0x0FFF
+        let tile_address = vram_base_address + (unique_idx as u32 * 32);
+        let address_field = ((tile_address >> 4) & 0x0FFF) as u16;
+        let bat_word = (palette_idx << 12) | address_field;
+
+        if tile_idx % tiles_x as usize == 0 {
+            output.push_str(&format!("  .dw ${:04X}", bat_word));
+        } else {
+            output.push_str(&format!(",${:04X}", bat_word));
+        }
+    }
+    output.push_str("\n\n");
+
+    // TILES data
+    output.push_str("; ----------------------------------------\n");
+    output.push_str("; TILES - Planar format (32 bytes per tile)\n");
+    output.push_str("; Planes 1&2 lines 0-7, then Planes 3&4 lines 0-7\n");
+    output.push_str("; ----------------------------------------\n");
+    output.push_str("TILES:\n");
+
+    for (tile_idx, tile_data) in unique_tiles.iter().enumerate() {
+        output.push_str(&format!("  ; Tile {}\n", tile_idx));
+
+        // First 16 bytes (Planes 1 & 2, lines 0-7)
+        output.push_str("  .db ");
+        for (i, byte) in tile_data[0..16].iter().enumerate() {
+            if i > 0 {
+                output.push(',');
+            }
+            output.push_str(&format!("${:02X}", byte));
+        }
+        output.push('\n');
+
+        // Second 16 bytes (Planes 3 & 4, lines 0-7)
+        output.push_str("  .db ");
+        for (i, byte) in tile_data[16..32].iter().enumerate() {
+            if i > 0 {
+                output.push(',');
+            }
+            output.push_str(&format!("${:02X}", byte));
+        }
+        output.push_str("\n\n");
+    }
+
+    // PALETTES data
+    output.push_str("; ----------------------------------------\n");
+    output.push_str("; PALETTES - RGB333 format (16 colors x 16 palettes)\n");
+    output.push_str("; Format: -------- -GGGRRR- -------- -BBB----\n");
+    output.push_str("; Stored as: 0x00GR, 0x00B0 per color (little-endian words)\n");
+    output.push_str("; ----------------------------------------\n");
+    output.push_str("PALETTES:\n");
+
+    for (pal_idx, palette) in palettes.iter().enumerate() {
+        output.push_str(&format!("  ; Palette {}\n", pal_idx));
+        output.push_str("  .dw ");
+
+        for (col_idx, color) in palette.iter().take(16).enumerate() {
+            if col_idx > 0 {
+                output.push(',');
+            }
+            let word = color_to_pce_word(color);
+            output.push_str(&format!("${:04X}", word));
+        }
+
+        // Pad palette to 16 colors if needed
+        for _ in palette.len()..16 {
+            output.push_str(",$0000");
+        }
+
+        output.push('\n');
+    }
+
+    Ok(ExportResult {
+        plain_text: output,
+        tile_count: total_tiles,
+        unique_tile_count: unique_tiles.len(),
+        bat_size: total_tiles * 2,
+    })
+}
+
+/// Encode a single 8x8 tile to PC-Engine planar format (32 bytes)
+/// Format: Planes 1&2 for lines 0-7 (16 bytes), then Planes 3&4 for lines 0-7 (16 bytes)
+fn encode_tile_planar(
+    img: &RgbaImage,
+    tile_x: u32,
+    tile_y: u32,
+    palette: &[String],
+) -> [u8; 32] {
+    let mut data = [0u8; 32];
+
+    for line in 0..8u32 {
+        let mut plane1: u8 = 0;
+        let mut plane2: u8 = 0;
+        let mut plane3: u8 = 0;
+        let mut plane4: u8 = 0;
+
+        for px in 0..8u32 {
+            let pixel = img.get_pixel(tile_x * 8 + px, tile_y * 8 + line);
+            let color = format!("#{:02X}{:02X}{:02X}", pixel.0[0], pixel.0[1], pixel.0[2]);
+
+            // Find color index in palette (0-15)
+            let color_idx = palette.iter()
+                .position(|c| c.eq_ignore_ascii_case(&color))
+                .unwrap_or(0) as u8;
+
+            // Build planar data (MSB = leftmost pixel)
+            let bit_pos = 7 - px as u8;
+            plane1 |= ((color_idx >> 0) & 1) << bit_pos;
+            plane2 |= ((color_idx >> 1) & 1) << bit_pos;
+            plane3 |= ((color_idx >> 2) & 1) << bit_pos;
+            plane4 |= ((color_idx >> 3) & 1) << bit_pos;
+        }
+
+        // Planes 1&2: bytes 0-15 (2 bytes per line, interleaved)
+        data[(line * 2) as usize] = plane1;
+        data[(line * 2 + 1) as usize] = plane2;
+
+        // Planes 3&4: bytes 16-31 (2 bytes per line, interleaved)
+        data[(16 + line * 2) as usize] = plane3;
+        data[(16 + line * 2 + 1) as usize] = plane4;
+    }
+
+    data
+}
+
+/// Convert a hex color (#RRGGBB) to PC-Engine 9-bit RGB333 word
+/// PCE format: -------- -GGG-RRR -------- -BBB----
+/// Stored as single 16-bit word: 0b0000_0GGG_RRRB_BB00 (actually different)
+/// Real format: bits 8-6 = Green, bits 5-3 = Red, bits 2-0 = Blue
+fn color_to_pce_word(color: &str) -> u16 {
+    let rgba = parse_hex_color(color).unwrap_or(Rgba([0, 0, 0, 255]));
+    let r = rgba.0[0];
+    let g = rgba.0[1];
+    let b = rgba.0[2];
+
+    // Convert 8-bit to 3-bit (0-7)
+    let r3 = (r >> 5) & 0x07;
+    let g3 = (g >> 5) & 0x07;
+    let b3 = (b >> 5) & 0x07;
+
+    // PCE color format: 0000_0GGG_RRRB_BB00 -> stored as 0x0GRB format
+    // Actually: G(3 bits) << 6 | R(3 bits) << 3 | B(3 bits)
+    ((g3 as u16) << 6) | ((r3 as u16) << 3) | (b3 as u16)
+}
+
+#[derive(Serialize)]
+struct BinaryExportResult {
+    bat: Vec<u8>,
+    tiles: Vec<u8>,
+    palettes: Vec<u8>,
+    tile_count: usize,
+    unique_tile_count: usize,
+}
+
+/// Export converted image as binary data (bat.bin, tiles.bin, pal.bin)
+#[tauri::command]
+fn export_binaries(
+    image_data: Vec<u8>,  // PNG image as bytes
+    palettes: Vec<Vec<String>>,
+    tile_palette_map: Vec<usize>,
+    empty_tiles: Vec<bool>,
+    vram_base_address: u32,
+) -> Result<BinaryExportResult, String> {
+    // Decode PNG image
+    let img = image::load_from_memory(&image_data)
+        .map_err(|e| format!("Failed to decode image: {}", e))?
+        .to_rgba8();
+
+    let (width, height) = img.dimensions();
+    let tiles_x = width / 8;
+    let tiles_y = height / 8;
+    let total_tiles = (tiles_x * tiles_y) as usize;
+
+    // Build unique tiles and mapping
+    // Empty tile is always first (32 bytes of zeros = all pixels are color index 0)
+    let empty_tile: [u8; 32] = [0u8; 32];
+    let mut unique_tiles: Vec<[u8; 32]> = vec![empty_tile];
+    let mut tile_to_unique: Vec<usize> = Vec::with_capacity(total_tiles);
+
+    for tile_idx in 0..total_tiles {
+        // Empty tiles all point to the first tile (index 0)
+        if empty_tiles.get(tile_idx).copied().unwrap_or(false) {
+            tile_to_unique.push(0);
+            continue;
+        }
+
+        let tile_x = (tile_idx % tiles_x as usize) as u32;
+        let tile_y = (tile_idx / tiles_x as usize) as u32;
+
+        // Get palette for this tile
+        let palette_idx = tile_palette_map.get(tile_idx).copied().unwrap_or(0);
+        let palette = palettes.get(palette_idx).cloned().unwrap_or_default();
+
+        // Encode tile to planar format
+        let tile_data = encode_tile_planar(&img, tile_x, tile_y, &palette);
+
+        // Check for duplicate
+        let existing_idx = unique_tiles.iter().position(|t| *t == tile_data);
+        match existing_idx {
+            Some(idx) => tile_to_unique.push(idx),
+            None => {
+                tile_to_unique.push(unique_tiles.len());
+                unique_tiles.push(tile_data);
+            }
+        }
+    }
+
+    // Generate BAT binary (little-endian 16-bit words)
+    let mut bat_data: Vec<u8> = Vec::with_capacity(total_tiles * 2);
+    for (tile_idx, &unique_idx) in tile_to_unique.iter().enumerate() {
+        // Empty tiles use palette 0
+        let palette_idx = if empty_tiles.get(tile_idx).copied().unwrap_or(false) {
+            0u16
+        } else {
+            tile_palette_map.get(tile_idx).copied().unwrap_or(0) as u16
+        };
+        let tile_address = vram_base_address + (unique_idx as u32 * 32);
+        let address_field = ((tile_address >> 4) & 0x0FFF) as u16;
+        let bat_word = (palette_idx << 12) | address_field;
+
+        // Little-endian
+        bat_data.push((bat_word & 0xFF) as u8);
+        bat_data.push((bat_word >> 8) as u8);
+    }
+
+    // Generate TILES binary
+    let mut tiles_data: Vec<u8> = Vec::with_capacity(unique_tiles.len() * 32);
+    for tile in unique_tiles.iter() {
+        tiles_data.extend_from_slice(tile);
+    }
+
+    // Generate PALETTES binary (16 palettes x 16 colors x 2 bytes = 512 bytes)
+    let mut pal_data: Vec<u8> = Vec::with_capacity(16 * 16 * 2);
+    for pal_idx in 0..16 {
+        let palette = palettes.get(pal_idx).cloned().unwrap_or_default();
+        for col_idx in 0..16 {
+            let word = if col_idx < palette.len() {
+                color_to_pce_word(&palette[col_idx])
+            } else {
+                0x0000
+            };
+            // Little-endian
+            pal_data.push((word & 0xFF) as u8);
+            pal_data.push((word >> 8) as u8);
+        }
+    }
+
+    Ok(BinaryExportResult {
+        bat: bat_data,
+        tiles: tiles_data,
+        palettes: pal_data,
+        tile_count: total_tiles,
+        unique_tile_count: unique_tiles.len(),
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![open_image, run_conversion])
+        .invoke_handler(tauri::generate_handler![open_image, run_conversion, export_plain_text, export_binaries])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

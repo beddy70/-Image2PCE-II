@@ -19,7 +19,11 @@
           <button class="btn" id="open-image">Open image</button>
           <button class="btn" id="save-image">Save as image</button>
           <button class="btn" id="save-binaries">Save binaries</button>
-          <button class="btn" id="save-text">Save plain text</button>
+          <button class="btn" id="save-text">Save .asm</button>
+          <label class="vram-address-label">
+            VRAM
+            <input type="text" id="vram-address" value="$4000" size="6" placeholder="$4000" />
+          </label>
         </div>
       </header>
 
@@ -74,6 +78,20 @@
             <input id="dither-mask" type="checkbox" />
           </label>
           <button class="btn btn--primary" id="run-conversion">Convertir</button>
+        </div>
+        <div class="settings__group settings__group--curve">
+          <div class="curve-editor">
+            <div class="curve-editor__header">
+              <span class="curve-editor__title">Courbe RGB333</span>
+              <button class="btn btn--small" id="curve-reset">Reset</button>
+            </div>
+            <div class="curve-editor__canvas-wrapper">
+              <canvas id="curve-canvas" width="256" height="256"></canvas>
+            </div>
+            <div class="curve-editor__info">
+              <span id="curve-info">Entrée: — Sortie: —</span>
+            </div>
+          </div>
         </div>
       </section>
 
