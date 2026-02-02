@@ -175,26 +175,55 @@ struct TilePaletteResult {
     palette_colors: Vec<Vec<String>>,
 }
 
+/// Tile info with colors and their pixel counts
+struct TileColorInfo {
+    colors: Vec<String>,
+    color_counts: std::collections::HashMap<String, usize>,
+}
+
 fn build_palettes_for_tiles(
     image: &RgbaImage,
     palette_count: usize,
     background_color: &str,
 ) -> Result<TilePaletteResult, String> {
-    let tiles = extract_tile_colors(image);
+    use std::collections::HashMap;
+
+    let tile_infos = extract_tile_colors_with_frequency(image);
     let palette_slots = palette_count.max(1).min(16);
     let global_color0 = parse_hex_color(background_color)
         .map(|color| format!("#{:02X}{:02X}{:02X}", color.0[0], color.0[1], color.0[2]))
         .unwrap_or_else(|| "#000000".to_string());
-    let mut clusters = seed_palette_clusters(&tiles, palette_slots, &global_color0);
+
+    // Collect global color frequencies across all tiles
+    let mut global_color_freq: HashMap<String, usize> = HashMap::new();
+    for tile_info in tile_infos.iter() {
+        for (color, count) in tile_info.color_counts.iter() {
+            *global_color_freq.entry(color.clone()).or_insert(0) += count;
+        }
+    }
+
+    // Extract just the color lists for compatibility
+    let tiles: Vec<Vec<String>> = tile_infos.iter().map(|ti| ti.colors.clone()).collect();
+
+    // Seed initial palettes
+    let mut clusters = seed_palette_clusters_v2(&tile_infos, palette_slots, &global_color0, &global_color_freq);
     let mut tile_palette_map = vec![0usize; tiles.len()];
 
-    for _ in 0..4 {
-        for (tile_index, tile_colors) in tiles.iter().enumerate() {
-            let palette_index = best_cluster_for_tile(&clusters, tile_colors, &global_color0);
+    // Iterate to refine clustering
+    for _ in 0..6 {
+        // Assign each tile to best matching palette
+        for (tile_index, tile_info) in tile_infos.iter().enumerate() {
+            let palette_index = best_cluster_for_tile(&clusters, &tile_info.colors, &global_color0);
             tile_palette_map[tile_index] = palette_index;
         }
 
-        clusters = rebuild_clusters(&tiles, &tile_palette_map, palette_slots, &global_color0);
+        // Rebuild palettes from assigned tiles, using frequency-weighted selection
+        clusters = rebuild_clusters_with_frequency(
+            &tile_infos,
+            &tile_palette_map,
+            palette_slots,
+            &global_color0,
+        );
     }
 
     let mut palette_colors = Vec::new();
@@ -205,10 +234,7 @@ fn build_palettes_for_tiles(
         if !cluster.contains(&global_color0) {
             cluster.insert(0, global_color0.clone());
         }
-        // Use intelligent color reduction instead of truncation
-        if cluster.len() > 16 {
-            reduce_palette_to_size(cluster, 16, &global_color0);
-        }
+        // Palette should already be <= 16 colors from rebuild_clusters_with_frequency
         palette_colors.push(cluster.clone());
         let mut padded = cluster.clone();
         while padded.len() < 16 {
@@ -230,6 +256,15 @@ fn build_palettes_for_tiles(
 }
 
 fn extract_tile_colors(image: &RgbaImage) -> Vec<Vec<String>> {
+    extract_tile_colors_with_frequency(image)
+        .into_iter()
+        .map(|ti| ti.colors)
+        .collect()
+}
+
+fn extract_tile_colors_with_frequency(image: &RgbaImage) -> Vec<TileColorInfo> {
+    use std::collections::HashMap;
+
     let mut tiles = Vec::new();
     let (width, height) = image.dimensions();
     let tiles_x = width / 8;
@@ -237,103 +272,92 @@ fn extract_tile_colors(image: &RgbaImage) -> Vec<Vec<String>> {
 
     for ty in 0..tiles_y {
         for tx in 0..tiles_x {
-            let mut colors: Vec<String> = Vec::new();
+            let mut color_counts: HashMap<String, usize> = HashMap::new();
             for y in 0..8 {
                 for x in 0..8 {
                     let px = image.get_pixel(tx * 8 + x, ty * 8 + y);
                     let [r, g, b, _] = px.0;
                     let color = format!("#{:02X}{:02X}{:02X}", r, g, b);
-                    if !colors.contains(&color) {
-                        colors.push(color);
-                    }
+                    *color_counts.entry(color).or_insert(0) += 1;
                 }
             }
+            let mut colors: Vec<String> = color_counts.keys().cloned().collect();
             colors.sort();
-            tiles.push(colors);
+            tiles.push(TileColorInfo { colors, color_counts });
         }
     }
 
     tiles
 }
 
-fn seed_palette_clusters(
-    tiles: &[Vec<String>],
+fn seed_palette_clusters_v2(
+    tile_infos: &[TileColorInfo],
     palette_slots: usize,
     color0: &str,
+    global_freq: &std::collections::HashMap<String, usize>,
 ) -> Vec<Vec<String>> {
-    // Collect all unique colors from all tiles with their frequency
     use std::collections::HashMap;
-    let mut color_frequency: HashMap<String, usize> = HashMap::new();
-    for tile_colors in tiles.iter() {
-        for color in tile_colors.iter() {
-            *color_frequency.entry(color.clone()).or_insert(0) += 1;
-        }
+
+    // Group tiles by their dominant color (most frequent color in tile, excluding color0)
+    let mut dominant_groups: HashMap<String, Vec<usize>> = HashMap::new();
+    for (idx, tile_info) in tile_infos.iter().enumerate() {
+        let dominant = tile_info
+            .color_counts
+            .iter()
+            .filter(|(c, _)| *c != color0)
+            .max_by_key(|(_, count)| *count)
+            .map(|(c, _)| c.clone())
+            .unwrap_or_else(|| color0.to_string());
+        dominant_groups.entry(dominant).or_default().push(idx);
     }
 
-    // Sort colors by frequency (most common first)
-    let mut all_colors: Vec<_> = color_frequency.into_iter().collect();
-    all_colors.sort_by(|a, b| b.1.cmp(&a.1));
+    // Sort dominant colors by how many tiles they represent
+    let mut dominant_colors: Vec<_> = dominant_groups.iter().collect();
+    dominant_colors.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
 
-    // Select diverse seed colors using a greedy approach
-    let mut seed_colors: Vec<String> = vec![color0.to_string()];
-    for (color, _) in all_colors.iter() {
-        if color == color0 {
-            continue;
-        }
-        // Check if this color is sufficiently different from existing seeds
-        let mut min_dist = u32::MAX;
-        if let Some(new_c) = parse_hex_color(color) {
-            for existing in seed_colors.iter() {
-                if let Some(existing_c) = parse_hex_color(existing) {
-                    let dr = new_c.0[0] as i32 - existing_c.0[0] as i32;
-                    let dg = new_c.0[1] as i32 - existing_c.0[1] as i32;
-                    let db = new_c.0[2] as i32 - existing_c.0[2] as i32;
-                    let dist = (dr * dr + dg * dg + db * db) as u32;
-                    min_dist = min_dist.min(dist);
-                }
-            }
-        }
-        // Only add if sufficiently different (threshold: ~20 units per channel)
-        if min_dist > 1200 || seed_colors.len() < palette_slots * 4 {
-            seed_colors.push(color.clone());
-        }
-        if seed_colors.len() >= palette_slots * 16 {
-            break;
-        }
-    }
-
-    // Now build initial palettes by selecting tiles with diverse color profiles
+    // Build initial palettes from the most representative tiles
     let mut palettes = Vec::new();
-    let mut used_tiles: Vec<bool> = vec![false; tiles.len()];
+    let mut used_tiles: Vec<bool> = vec![false; tile_infos.len()];
 
-    // Score each tile by how many unique colors it contributes
-    let mut tile_scores: Vec<(usize, usize)> = tiles
-        .iter()
-        .enumerate()
-        .map(|(i, colors)| (i, colors.len()))
-        .collect();
-    tile_scores.sort_by(|a, b| b.1.cmp(&a.1));
-
-    // Select tiles with most colors first, ensuring diversity
-    for (tile_idx, _) in tile_scores.iter() {
+    for (dominant_color, tile_indices) in dominant_colors.iter() {
         if palettes.len() >= palette_slots {
             break;
         }
-        if used_tiles[*tile_idx] {
-            continue;
-        }
 
-        let mut palette = tiles[*tile_idx].clone();
-        palette.sort();
-        palette.dedup();
-        if !palette.contains(&color0.to_string()) {
-            palette.insert(0, color0.to_string());
+        // Find the tile in this group that has the most common colors (by global frequency)
+        let best_tile_idx = tile_indices
+            .iter()
+            .filter(|idx| !used_tiles[**idx])
+            .max_by_key(|idx| {
+                tile_infos[**idx]
+                    .colors
+                    .iter()
+                    .map(|c| global_freq.get(c).unwrap_or(&0))
+                    .sum::<usize>()
+            });
+
+        if let Some(&tile_idx) = best_tile_idx {
+            let tile_info = &tile_infos[tile_idx];
+            let mut palette: Vec<(String, usize)> = tile_info
+                .color_counts
+                .iter()
+                .map(|(c, count)| (c.clone(), *count))
+                .collect();
+            palette.sort_by(|a, b| b.1.cmp(&a.1));
+
+            let mut final_palette: Vec<String> = vec![color0.to_string()];
+            for (color, _) in palette.iter() {
+                if color != color0 && !final_palette.contains(color) {
+                    final_palette.push(color.clone());
+                }
+                if final_palette.len() >= 16 {
+                    break;
+                }
+            }
+
+            palettes.push(final_palette);
+            used_tiles[tile_idx] = true;
         }
-        if palette.len() > 16 {
-            reduce_palette_to_size(&mut palette, 16, color0);
-        }
-        palettes.push(palette);
-        used_tiles[*tile_idx] = true;
     }
 
     while palettes.len() < palette_slots {
@@ -343,6 +367,78 @@ fn seed_palette_clusters(
     palettes
 }
 
+#[allow(dead_code)]
+fn seed_palette_clusters(
+    tiles: &[Vec<String>],
+    palette_slots: usize,
+    color0: &str,
+) -> Vec<Vec<String>> {
+    // Legacy function - redirect to simple implementation
+    let mut palettes = Vec::new();
+    for tile_colors in tiles.iter() {
+        if palettes.len() >= palette_slots {
+            break;
+        }
+        let mut palette = tile_colors.clone();
+        palette.sort();
+        palette.dedup();
+        if !palette.contains(&color0.to_string()) {
+            palette.insert(0, color0.to_string());
+        }
+        if palette.len() > 16 {
+            palette.truncate(16);
+        }
+        palettes.push(palette);
+    }
+    while palettes.len() < palette_slots {
+        palettes.push(vec![color0.to_string()]);
+    }
+    palettes
+}
+
+fn rebuild_clusters_with_frequency(
+    tile_infos: &[TileColorInfo],
+    tile_palette_map: &[usize],
+    palette_slots: usize,
+    color0: &str,
+) -> Vec<Vec<String>> {
+    use std::collections::HashMap;
+
+    let mut palette_color_freq: Vec<HashMap<String, usize>> = vec![HashMap::new(); palette_slots];
+
+    // Accumulate color frequencies for each palette from assigned tiles
+    for (tile_info, palette_index) in tile_infos.iter().zip(tile_palette_map.iter()) {
+        for (color, count) in tile_info.color_counts.iter() {
+            *palette_color_freq[*palette_index].entry(color.clone()).or_insert(0) += count;
+        }
+    }
+
+    // Build palettes by selecting the most frequent colors (keeping originals, no averaging)
+    let mut palettes: Vec<Vec<String>> = Vec::new();
+
+    for freq_map in palette_color_freq.iter() {
+        // Sort colors by frequency (most used first)
+        let mut color_freq: Vec<_> = freq_map.iter().collect();
+        color_freq.sort_by(|a, b| b.1.cmp(a.1));
+
+        let mut palette = vec![color0.to_string()];
+
+        for (color, _) in color_freq.iter() {
+            if *color != color0 && !palette.contains(color) {
+                palette.push((*color).clone());
+            }
+            if palette.len() >= 16 {
+                break;
+            }
+        }
+
+        palettes.push(palette);
+    }
+
+    palettes
+}
+
+#[allow(dead_code)]
 fn rebuild_clusters(
     tiles: &[Vec<String>],
     tile_palette_map: &[usize],
@@ -360,9 +456,8 @@ fn rebuild_clusters(
         if !palette.contains(&color0.to_string()) {
             palette.insert(0, color0.to_string());
         }
-        // Use intelligent color reduction instead of truncation
         if palette.len() > 16 {
-            reduce_palette_to_size(palette, 16, color0);
+            palette.truncate(16);
         }
     }
 
@@ -387,21 +482,24 @@ fn merge_palette(existing: &mut Vec<String>, incoming: &[String]) {
     }
 }
 
-/// Reduce a palette to max_colors by iteratively merging the two closest colors
+/// Reduce a palette to max_colors by keeping the most frequent colors
+/// No longer uses averaging - keeps original RGB333 colors
+#[allow(dead_code)]
 fn reduce_palette_to_size(palette: &mut Vec<String>, max_colors: usize, preserve_color0: &str) {
     while palette.len() > max_colors {
         // Find the two closest colors (excluding color0 from being merged away)
         let mut min_dist = u32::MAX;
-        let mut merge_from = 0;
-        let mut merge_to = 0;
+        let mut merge_i = 0;
+        let mut merge_j = 0;
 
         for i in 0..palette.len() {
             // Don't merge away color0
             if palette[i] == preserve_color0 {
                 continue;
             }
-            for j in 0..palette.len() {
-                if i == j {
+            for j in (i + 1)..palette.len() {
+                // Don't merge color0 either
+                if palette[j] == preserve_color0 {
                     continue;
                 }
                 if let (Some(c1), Some(c2)) = (parse_hex_color(&palette[i]), parse_hex_color(&palette[j])) {
@@ -411,16 +509,37 @@ fn reduce_palette_to_size(palette: &mut Vec<String>, max_colors: usize, preserve
                     let dist = (dr * dr + dg * dg + db * db) as u32;
                     if dist < min_dist {
                         min_dist = dist;
-                        merge_from = i;
-                        merge_to = j;
+                        merge_i = i;
+                        merge_j = j;
                     }
                 }
             }
         }
 
-        // Remove the color that will be merged (keep merge_to)
-        if merge_from != merge_to && merge_from < palette.len() {
-            palette.remove(merge_from);
+        // Merge the two closest colors by computing their average
+        if merge_i != merge_j && merge_i < palette.len() && merge_j < palette.len() {
+            if let (Some(c1), Some(c2)) = (parse_hex_color(&palette[merge_i]), parse_hex_color(&palette[merge_j])) {
+                // Compute average color (quantized to RGB333)
+                let avg_r = ((c1.0[0] as u16 + c2.0[0] as u16) / 2) as u8;
+                let avg_g = ((c1.0[1] as u16 + c2.0[1] as u16) / 2) as u8;
+                let avg_b = ((c1.0[2] as u16 + c2.0[2] as u16) / 2) as u8;
+
+                // Quantize to RGB333
+                let q_r = quantize_channel_with_levels(avg_r, 8);
+                let q_g = quantize_channel_with_levels(avg_g, 8);
+                let q_b = quantize_channel_with_levels(avg_b, 8);
+
+                let merged_color = format!("#{:02X}{:02X}{:02X}", q_r, q_g, q_b);
+
+                // Remove both colors and add the merged one (if not already present)
+                // Remove higher index first to avoid index shifting
+                palette.remove(merge_j);
+                palette.remove(merge_i);
+
+                if !palette.contains(&merged_color) {
+                    palette.push(merged_color);
+                }
+            }
         } else {
             // Fallback: just remove the last color that isn't color0
             for i in (0..palette.len()).rev() {
