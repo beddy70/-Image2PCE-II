@@ -396,7 +396,7 @@ input[type="range"] {
 }
 
 .palette-swatch.is-selected {
-  box-shadow: 0 0 0 2px #6a4bff, 0 0 8px #6a4bff;
+  box-shadow: 0 0 0 1px #6a4bff, 0 0 8px #6a4bff;
 }
 
 @media (max-width: 900px) {

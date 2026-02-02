@@ -182,10 +182,16 @@ function renderPalettes(palettes, tilePaletteMap = []) {
 function selectColor0(color) {
   const color0Mode = document.querySelector("#color0-mode");
   const color0Preview = document.querySelector("#color0-preview");
+  const backgroundColorInput = document.querySelector("#background-color");
 
   // Set mode to fixed
   color0Mode.value = "fixed";
   state.fixedColor0 = color.toUpperCase();
+
+  // Update background-color input to stay in sync
+  if (backgroundColorInput) {
+    backgroundColorInput.value = color.toUpperCase();
+  }
 
   // Update preview
   if (color0Preview) {
@@ -216,12 +222,22 @@ function rgbToHex(rgb) {
 function updateColor0Preview() {
   const color0Mode = document.querySelector("#color0-mode");
   const color0Preview = document.querySelector("#color0-preview");
+  const backgroundColorInput = document.querySelector("#background-color");
 
   if (color0Mode && color0Preview) {
     const isFixed = color0Mode.value === "fixed";
-    color0Preview.classList.toggle("is-visible", isFixed);
+    // Always show preview to indicate the effective color0
+    color0Preview.classList.add("is-visible");
+
     if (isFixed) {
       color0Preview.style.backgroundColor = state.fixedColor0;
+      color0Preview.title = `Couleur 0 fixée: ${state.fixedColor0}`;
+    } else {
+      // In auto mode, sync with background-color input
+      const bgColor = backgroundColorInput ? backgroundColorInput.value : "#000000";
+      color0Preview.style.backgroundColor = bgColor;
+      color0Preview.title = `Couleur 0 auto: ${bgColor}`;
+      state.fixedColor0 = bgColor.toUpperCase();
     }
   }
 }
@@ -291,6 +307,24 @@ function bindActions() {
   // Color0 mode change
   document.querySelector("#color0-mode").addEventListener("change", updateColor0Preview);
 
+  // Background color input change - sync with color0 preview and state
+  document.querySelector("#background-color").addEventListener("input", (e) => {
+    const color = e.target.value.toUpperCase();
+    state.fixedColor0 = color;
+
+    const color0Preview = document.querySelector("#color0-preview");
+    if (color0Preview) {
+      color0Preview.style.backgroundColor = color;
+    }
+
+    // Update all swatches to show selection
+    document.querySelectorAll(".palette-swatch").forEach((swatch) => {
+      swatch.classList.toggle("is-selected",
+        rgbToHex(swatch.style.backgroundColor).toUpperCase() === color
+      );
+    });
+  });
+
   // Color0 preview click - allow picking from color input
   const color0Preview = document.querySelector("#color0-preview");
   if (color0Preview) {
@@ -315,4 +349,5 @@ function bindActions() {
 
 window.addEventListener("DOMContentLoaded", () => {
   bindActions();
+  updateColor0Preview();
 });
