@@ -1021,12 +1021,11 @@ function applyCrtBlur() {
   const blurSlider = document.querySelector("#crt-blur");
   if (!wrapper || !blurSlider) return;
 
-  const blurValue = parseInt(blurSlider.value, 10);
-  // Scale: 0-100 -> 0px to 0.5px blur
-  const blurPx = (blurValue / 100) * 0.5;
+  // Slider value is directly in pixels (0.0 to 1.0, step 0.05)
+  const blurPx = parseFloat(blurSlider.value);
   // Contrast and saturation scale with blur
-  const contrastBoost = (blurValue / 100) * 0.05;
-  const saturateBoost = (blurValue / 100) * 0.08;
+  const contrastBoost = blurPx * 0.05;
+  const saturateBoost = blurPx * 0.08;
 
   wrapper.style.setProperty("--crt-blur", `${blurPx}px`);
   wrapper.style.setProperty("--crt-blur-contrast", contrastBoost);
