@@ -5,6 +5,7 @@ const state = {
   inputImage: null,
   outputPreview: null,
   outputImageBase64: null,
+  originalImageData: null, // Store original ImageData for blur processing
   palettes: [],
   tilePaletteMap: [],
   emptyTiles: [],
@@ -178,11 +179,25 @@ async function runConversion() {
     const outputCanvas = document.querySelector("#output-canvas");
     outputCanvas.innerHTML = `
       <div class="viewer__stage">
-        <img src="data:image/png;base64,${previewBase64}" alt="output" class="viewer__image" />
+        <canvas id="output-image-canvas" class="viewer__image" width="256" height="256"></canvas>
         <div class="tile-highlight" id="tile-highlight"></div>
       </div>
       <canvas class="tile-zoom" id="tile-zoom" width="80" height="80"></canvas>
     `;
+
+    // Load image into canvas and store original data
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.querySelector("#output-image-canvas");
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0);
+      state.originalImageData = ctx.getImageData(0, 0, 256, 256);
+
+      // Apply current blur setting
+      applyCrtBlur();
+    };
+    img.src = `data:image/png;base64,${previewBase64}`;
 
     const outputMeta = document.querySelector("#output-meta");
     outputMeta.textContent = `${tileCount} tuiles (${uniqueTileCount} uniques, ${duplicates} doublons) — ${tilesBytes} octets`;
@@ -1017,24 +1032,140 @@ function applyCrtMode(mode) {
 }
 
 function applyCrtBlur() {
-  const wrapper = document.querySelector(".viewer__canvas-wrapper");
+  const canvas = document.querySelector("#output-image-canvas");
   const blurSlider = document.querySelector("#crt-blur");
-  if (!wrapper || !blurSlider) return;
+  const crtMode = document.querySelector("#crt-mode")?.value;
 
-  // Slider value 0-100, apply quadratic curve for more precision at low values
-  // Formula: blurPx = (value/100)² × maxBlur
-  // This gives: 0→0px, 25→0.25px, 50→1px, 75→2.25px, 100→4px
+  if (!canvas || !blurSlider || !state.originalImageData) return;
+
+  const ctx = canvas.getContext("2d");
   const sliderValue = parseInt(blurSlider.value, 10);
-  const normalized = sliderValue / 100;
-  const blurPx = normalized * normalized * 4; // Quadratic: 0-4px range
 
-  // Contrast and saturation scale with blur
-  const contrastBoost = normalized * 0.1;
-  const saturateBoost = normalized * 0.15;
+  // If no CRT mode or blur is 0, restore original image
+  if (!crtMode || crtMode === "none" || sliderValue === 0) {
+    ctx.putImageData(state.originalImageData, 0, 0);
+    return;
+  }
 
-  wrapper.style.setProperty("--crt-blur", `${blurPx}px`);
-  wrapper.style.setProperty("--crt-blur-contrast", contrastBoost);
-  wrapper.style.setProperty("--crt-blur-saturate", saturateBoost);
+  // Apply box blur with the slider value as radius (0-100 maps to 0-3 radius)
+  // Using fractional blur for smooth transitions
+  const blurRadius = (sliderValue / 100) * 3;
+  const blurredData = boxBlur(state.originalImageData, blurRadius);
+  ctx.putImageData(blurredData, 0, 0);
+}
+
+// Fast box blur implementation with fractional radius support
+function boxBlur(imageData, radius) {
+  if (radius <= 0) return imageData;
+
+  const width = imageData.width;
+  const height = imageData.height;
+  const src = new Uint8ClampedArray(imageData.data);
+  const dst = new Uint8ClampedArray(imageData.data.length);
+
+  // For fractional radius, we blend between two integer radii
+  const radiusInt = Math.floor(radius);
+  const radiusFrac = radius - radiusInt;
+
+  // Apply blur passes (3 passes approximates Gaussian)
+  let current = src;
+  let next = dst;
+
+  for (let pass = 0; pass < 3; pass++) {
+    // Horizontal pass
+    boxBlurH(current, next, width, height, radiusInt);
+    [current, next] = [next, current];
+
+    // Vertical pass
+    boxBlurV(current, next, width, height, radiusInt);
+    [current, next] = [next, current];
+  }
+
+  // If we have a fractional part, blend with one more pass at radius+1
+  if (radiusFrac > 0.01 && radiusInt < 3) {
+    const extra = new Uint8ClampedArray(imageData.data.length);
+    let extraCurrent = new Uint8ClampedArray(src);
+    let extraNext = extra;
+
+    for (let pass = 0; pass < 3; pass++) {
+      boxBlurH(extraCurrent, extraNext, width, height, radiusInt + 1);
+      [extraCurrent, extraNext] = [extraNext, extraCurrent];
+      boxBlurV(extraCurrent, extraNext, width, height, radiusInt + 1);
+      [extraCurrent, extraNext] = [extraNext, extraCurrent];
+    }
+
+    // Blend between the two results
+    for (let i = 0; i < current.length; i++) {
+      current[i] = Math.round(current[i] * (1 - radiusFrac) + extraCurrent[i] * radiusFrac);
+    }
+  }
+
+  return new ImageData(current, width, height);
+}
+
+function boxBlurH(src, dst, width, height, radius) {
+  const div = radius + radius + 1;
+  for (let y = 0; y < height; y++) {
+    let rSum = 0, gSum = 0, bSum = 0, aSum = 0;
+    const yOffset = y * width * 4;
+
+    // Initialize sum for first pixel
+    for (let x = -radius; x <= radius; x++) {
+      const idx = yOffset + Math.max(0, Math.min(width - 1, x)) * 4;
+      rSum += src[idx];
+      gSum += src[idx + 1];
+      bSum += src[idx + 2];
+      aSum += src[idx + 3];
+    }
+
+    for (let x = 0; x < width; x++) {
+      const idx = yOffset + x * 4;
+      dst[idx] = Math.round(rSum / div);
+      dst[idx + 1] = Math.round(gSum / div);
+      dst[idx + 2] = Math.round(bSum / div);
+      dst[idx + 3] = Math.round(aSum / div);
+
+      // Slide the window
+      const leftIdx = yOffset + Math.max(0, x - radius) * 4;
+      const rightIdx = yOffset + Math.min(width - 1, x + radius + 1) * 4;
+      rSum += src[rightIdx] - src[leftIdx];
+      gSum += src[rightIdx + 1] - src[leftIdx + 1];
+      bSum += src[rightIdx + 2] - src[leftIdx + 2];
+      aSum += src[rightIdx + 3] - src[leftIdx + 3];
+    }
+  }
+}
+
+function boxBlurV(src, dst, width, height, radius) {
+  const div = radius + radius + 1;
+  for (let x = 0; x < width; x++) {
+    let rSum = 0, gSum = 0, bSum = 0, aSum = 0;
+
+    // Initialize sum for first pixel
+    for (let y = -radius; y <= radius; y++) {
+      const idx = Math.max(0, Math.min(height - 1, y)) * width * 4 + x * 4;
+      rSum += src[idx];
+      gSum += src[idx + 1];
+      bSum += src[idx + 2];
+      aSum += src[idx + 3];
+    }
+
+    for (let y = 0; y < height; y++) {
+      const idx = y * width * 4 + x * 4;
+      dst[idx] = Math.round(rSum / div);
+      dst[idx + 1] = Math.round(gSum / div);
+      dst[idx + 2] = Math.round(bSum / div);
+      dst[idx + 3] = Math.round(aSum / div);
+
+      // Slide the window
+      const topIdx = Math.max(0, y - radius) * width * 4 + x * 4;
+      const bottomIdx = Math.min(height - 1, y + radius + 1) * width * 4 + x * 4;
+      rSum += src[bottomIdx] - src[topIdx];
+      gSum += src[bottomIdx + 1] - src[topIdx + 1];
+      bSum += src[bottomIdx + 2] - src[topIdx + 2];
+      aSum += src[bottomIdx + 3] - src[topIdx + 3];
+    }
+  }
 }
 
 // ===== End CRT Simulation =====

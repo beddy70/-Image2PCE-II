@@ -617,9 +617,9 @@ input[type="range"] {
   box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.3);
 }
 
-/* CRT analog blur effect on the image - controlled via CSS variable */
+/* CRT contrast/saturation boost - blur is now done via canvas */
 .viewer__canvas-wrapper.crt-glow .viewer__image {
-  filter: blur(var(--crt-blur, 0px)) contrast(calc(1 + var(--crt-blur-contrast, 0))) saturate(calc(1 + var(--crt-blur-saturate, 0)));
+  filter: contrast(1.05) saturate(1.1);
 }
 
 /* Phosphor bloom effect - subtle glow layer */
