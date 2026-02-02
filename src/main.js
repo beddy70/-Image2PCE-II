@@ -873,6 +873,7 @@ function saveSettings() {
     zoomInput: document.querySelector("#zoom-input")?.value,
     zoomOutput: document.querySelector("#zoom-output")?.value,
     crtMode: document.querySelector("#crt-mode")?.value,
+    crtBlur: document.querySelector("#crt-blur")?.value,
     curvePoints: state.curvePoints,
     fixedColor0: state.fixedColor0,
   };
@@ -940,6 +941,10 @@ function loadSettings() {
       const el = document.querySelector("#crt-mode");
       if (el) el.value = settings.crtMode;
     }
+    if (settings.crtBlur) {
+      const el = document.querySelector("#crt-blur");
+      if (el) el.value = settings.crtBlur;
+    }
 
     // Restore state values
     if (settings.curvePoints && Array.isArray(settings.curvePoints)) {
@@ -969,6 +974,7 @@ function setupSettingsAutoSave() {
     "#zoom-input",
     "#zoom-output",
     "#crt-mode",
+    "#crt-blur",
   ];
 
   inputs.forEach((selector) => {
@@ -1000,28 +1006,31 @@ function applyCrtMode(mode) {
 
   // Remove all CRT classes
   overlay.classList.remove("is-active", "crt-scanlines", "crt-aperture", "crt-shadowmask", "crt-composite");
-  wrapper?.classList.remove("crt-glow", "crt-blur-light", "crt-blur-medium", "crt-blur-heavy");
+  wrapper?.classList.remove("crt-glow");
 
   if (mode && mode !== "none") {
     overlay.classList.add("is-active", `crt-${mode}`);
     wrapper?.classList.add("crt-glow");
-
-    // Apply analog blur based on CRT type
-    // Scanlines: light blur (sharp scanlines)
-    // Aperture Grille: light blur (Trinitron style, sharper)
-    // Shadow Mask: medium blur (classic TV)
-    // Composite: heavy blur (analog video signal degradation)
-    const blurLevels = {
-      scanlines: "crt-blur-light",
-      aperture: "crt-blur-light",
-      shadowmask: "crt-blur-medium",
-      composite: "crt-blur-heavy",
-    };
-    const blurClass = blurLevels[mode];
-    if (blurClass) {
-      wrapper?.classList.add(blurClass);
-    }
+    // Apply current blur value
+    applyCrtBlur();
   }
+}
+
+function applyCrtBlur() {
+  const wrapper = document.querySelector(".viewer__canvas-wrapper");
+  const blurSlider = document.querySelector("#crt-blur");
+  if (!wrapper || !blurSlider) return;
+
+  const blurValue = parseInt(blurSlider.value, 10);
+  // Scale: 0-100 -> 0px to 0.5px blur
+  const blurPx = (blurValue / 100) * 0.5;
+  // Contrast and saturation scale with blur
+  const contrastBoost = (blurValue / 100) * 0.05;
+  const saturateBoost = (blurValue / 100) * 0.08;
+
+  wrapper.style.setProperty("--crt-blur", `${blurPx}px`);
+  wrapper.style.setProperty("--crt-blur-contrast", contrastBoost);
+  wrapper.style.setProperty("--crt-blur-saturate", saturateBoost);
 }
 
 // ===== End CRT Simulation =====
@@ -1046,6 +1055,9 @@ function bindActions() {
   document.querySelector("#crt-mode")?.addEventListener("change", (e) => {
     applyCrtMode(e.target.value);
   });
+
+  // CRT blur change
+  document.querySelector("#crt-blur")?.addEventListener("input", applyCrtBlur);
 
   // Background color input change - sync with color0 preview and state
   document.querySelector("#background-color").addEventListener("input", (e) => {

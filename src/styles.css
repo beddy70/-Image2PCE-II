@@ -552,14 +552,14 @@ input[type="range"] {
   display: block;
 }
 
-/* Scanlines effect */
+/* Scanlines effect - 1px period (0.5px line + 0.5px gap) */
 .crt-overlay.crt-scanlines {
   background: repeating-linear-gradient(
     0deg,
     transparent,
-    transparent 1px,
-    rgba(0, 0, 0, 0.3) 1px,
-    rgba(0, 0, 0, 0.3) 2px
+    transparent 0.5px,
+    rgba(0, 0, 0, 0.25) 0.5px,
+    rgba(0, 0, 0, 0.25) 1px
   );
 }
 
@@ -592,9 +592,9 @@ input[type="range"] {
     repeating-linear-gradient(
       0deg,
       transparent,
-      transparent 1px,
-      rgba(0, 0, 0, 0.25) 1px,
-      rgba(0, 0, 0, 0.25) 2px
+      transparent 0.5px,
+      rgba(0, 0, 0, 0.2) 0.5px,
+      rgba(0, 0, 0, 0.2) 1px
     ),
     repeating-linear-gradient(
       90deg,
@@ -617,17 +617,9 @@ input[type="range"] {
   box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.3);
 }
 
-/* CRT analog blur effect on the image */
-.viewer__canvas-wrapper.crt-blur-light .viewer__image {
-  filter: blur(0.3px) contrast(1.05) saturate(1.1);
-}
-
-.viewer__canvas-wrapper.crt-blur-medium .viewer__image {
-  filter: blur(0.5px) contrast(1.08) saturate(1.15) brightness(1.02);
-}
-
-.viewer__canvas-wrapper.crt-blur-heavy .viewer__image {
-  filter: blur(0.7px) contrast(1.1) saturate(1.2) brightness(1.03);
+/* CRT analog blur effect on the image - controlled via CSS variable */
+.viewer__canvas-wrapper.crt-glow .viewer__image {
+  filter: blur(var(--crt-blur, 0px)) contrast(calc(1 + var(--crt-blur-contrast, 0))) saturate(calc(1 + var(--crt-blur-saturate, 0)));
 }
 
 /* Phosphor bloom effect - subtle glow layer */
