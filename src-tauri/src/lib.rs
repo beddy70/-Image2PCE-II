@@ -349,7 +349,7 @@ fn compact_palettes(
     }
 
     // Build mapping: old_index -> new_index
-    // Useful palettes with tiles come first, then empty/unused palettes go to the end
+    // Useful palettes with tiles come first (sorted by usage descending), then empty/unused palettes go to the end
     let mut used_indices: Vec<usize> = Vec::new();
     let mut unused_indices: Vec<usize> = Vec::new();
 
@@ -362,7 +362,10 @@ fn compact_palettes(
         }
     }
 
-    // Create the new order: used palettes first, then unused
+    // Sort used palettes by usage count descending (most used first)
+    used_indices.sort_by(|&a, &b| usage_count[b].cmp(&usage_count[a]));
+
+    // Create the new order: used palettes first (sorted by usage), then unused
     let new_order: Vec<usize> = used_indices.iter().chain(unused_indices.iter()).cloned().collect();
 
     // Build reverse mapping: old_index -> new_index

@@ -151,22 +151,17 @@ function renderPalettes(palettes, tilePaletteMap = []) {
     return;
   }
 
-  // Build palette info with usage counts
-  const paletteInfo = palettes.map((palette, index) => ({
-    palette,
-    index,
-    usageCount: tilePaletteMap.filter((entry) => entry === index).length,
-    hasRealColors: palette.some((color) => color !== state.fixedColor0 && color !== "#000000"),
-  }));
+  // Count actually used palettes (palettes with tiles that have real colors)
+  const usedPaletteCount = palettes.filter((palette, index) => {
+    const hasTiles = tilePaletteMap.filter((entry) => entry === index).length > 0;
+    const hasRealColors = palette.some((color) => color !== state.fixedColor0 && color !== "#000000");
+    return hasTiles && hasRealColors;
+  }).length;
 
-  // Count actually used palettes
-  const usedPaletteCount = paletteInfo.filter((p) => p.usageCount > 0 && p.hasRealColors).length;
-
-  // Sort by usage count descending
-  paletteInfo.sort((a, b) => b.usageCount - a.usageCount);
-
+  // Palettes are already sorted by the backend (most used first, empty at end)
   grid.innerHTML = "";
-  paletteInfo.forEach(({ palette, index, usageCount }) => {
+  palettes.forEach((palette, index) => {
+    const usageCount = tilePaletteMap.filter((entry) => entry === index).length;
     const card = document.createElement("div");
     card.className = "palette-card";
     card.dataset.paletteIndex = index;
