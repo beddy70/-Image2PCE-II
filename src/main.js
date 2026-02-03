@@ -108,10 +108,24 @@ function setupMaskDrawing() {
   maskCanvas.addEventListener("mousemove", drawOnMask);
   maskCanvas.addEventListener("mouseup", stopMaskDraw);
   maskCanvas.addEventListener("mouseleave", stopMaskDraw);
+
+  // Prevent native drag & drop when mask editing is active
+  maskCanvas.addEventListener("dragstart", (e) => e.preventDefault());
+
+  // Also prevent drag on the source image when mask editing
+  const sourceImage = document.querySelector("#source-image");
+  if (sourceImage) {
+    sourceImage.addEventListener("dragstart", (e) => {
+      if (state.mask.isEditing) {
+        e.preventDefault();
+      }
+    });
+  }
 }
 
 function startMaskDraw(event) {
   if (!state.mask.isEditing) return;
+  event.preventDefault(); // Prevent text selection and native drag
   state.mask.isDrawing = true;
   drawOnMask(event);
 }
@@ -515,6 +529,10 @@ function setupDrag(target) {
     return;
   }
   canvas.addEventListener("mousedown", (event) => {
+    // Don't start drag if mask editing is active on input canvas
+    if (target === "input" && state.mask.isEditing) {
+      return;
+    }
     const dragState = state.drag[target];
     dragState.isDragging = true;
     dragState.lastX = event.clientX;

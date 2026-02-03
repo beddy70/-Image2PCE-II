@@ -335,6 +335,7 @@ input[type="range"] {
   pointer-events: none;
   mix-blend-mode: multiply;
   transition: opacity 0.2s ease;
+  z-index: 10;
 }
 
 .mask-canvas.is-visible {
@@ -345,6 +346,8 @@ input[type="range"] {
   opacity: 0.5;
   pointer-events: auto;
   cursor: crosshair;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 /* Mask toolbar */
