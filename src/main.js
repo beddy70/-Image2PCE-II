@@ -66,8 +66,8 @@ async function openImage() {
     <div class="viewer__stage">
       <img src="${fileUrl}" alt="source" class="viewer__image" id="source-image" draggable="false" />
       <canvas id="mask-canvas" class="mask-canvas"></canvas>
-      <div id="brush-cursor" class="brush-cursor"></div>
     </div>
+    <div id="brush-cursor" class="brush-cursor"></div>
     <div class="viewer__path">${selected}</div>
   `;
 
@@ -153,7 +153,9 @@ function updateBrushCursor(event) {
   if (!brushCursor || !state.mask.isEditing) return;
 
   const inputCanvas = document.querySelector("#input-canvas");
-  const rect = inputCanvas.getBoundingClientRect();
+  if (!inputCanvas) return;
+
+  const inputRect = inputCanvas.getBoundingClientRect();
 
   // Get zoom level
   const zoomSlider = document.querySelector("#zoom-input");
@@ -162,9 +164,9 @@ function updateBrushCursor(event) {
   // Size of brush cursor in screen pixels
   const size = state.mask.brushSize * zoom;
 
-  // Position relative to input canvas
-  const x = event.clientX - rect.left;
-  const y = event.clientY - rect.top;
+  // Position relative to input canvas container
+  const x = event.clientX - inputRect.left;
+  const y = event.clientY - inputRect.top;
 
   brushCursor.style.width = `${size}px`;
   brushCursor.style.height = `${size}px`;

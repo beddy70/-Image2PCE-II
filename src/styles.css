@@ -270,6 +270,7 @@ input[type="range"] {
   text-align: center;
   padding: 16px;
   cursor: grab;
+  position: relative;
 }
 
 .viewer__canvas.is-dragging {
