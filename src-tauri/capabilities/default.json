@@ -10,6 +10,7 @@
     "fs:default",
     "fs:allow-write-text-file",
     "fs:allow-write",
-    "opener:default"
+    "opener:default",
+    "window-state:default"
   ]
 }

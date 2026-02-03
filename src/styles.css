@@ -126,66 +126,97 @@ input[type="range"] {
 
 .viewer {
   display: grid;
-  grid-template-columns: var(--viewer-split, 1fr) 8px var(--viewer-split-right, 1fr);
-  gap: 0;
-  min-height: 300px;
+  grid-template-columns: var(--viewer-split, 1fr) 20px var(--viewer-split-right, 1fr);
+  gap: 8px;
+  min-height: 450px;
   height: var(--viewer-height, 500px);
   position: relative;
 }
 
 .viewer__splitter {
-  background: #1f2432;
+  background: #2a3348;
   cursor: ew-resize;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.2s ease;
-  margin: 0 6px;
+  border-radius: 8px;
+  border: 1px solid #3a4560;
 }
 
 .viewer__splitter:hover,
 .viewer__splitter.is-dragging {
-  background: #4f76ff;
+  background: #3a4a6a;
+  border-color: #4f76ff;
 }
 
 .viewer__splitter::before {
   content: "";
   width: 4px;
-  height: 40px;
-  background: #2a3142;
+  height: 60px;
+  background: #4a5a7a;
   border-radius: 2px;
   transition: background 0.2s ease;
 }
 
 .viewer__splitter:hover::before,
 .viewer__splitter.is-dragging::before {
-  background: #fff;
+  background: #6a8aff;
 }
 
 .viewer__resize-handle {
   position: absolute;
-  bottom: -8px;
+  bottom: -12px;
   left: 50%;
   transform: translateX(-50%);
-  width: 60px;
-  height: 6px;
-  background: #2a3142;
-  border-radius: 3px;
+  width: 120px;
+  height: 8px;
+  background: #3a4560;
+  border-radius: 4px;
   cursor: ns-resize;
   transition: background 0.2s ease;
   z-index: 10;
+  border: 1px solid #4a5570;
 }
 
 .viewer__resize-handle:hover,
 .viewer__resize-handle.is-dragging {
   background: #4f76ff;
+  border-color: #6a8aff;
+}
+
+.viewer__resize-handle.is-at-limit {
+  background: #ff6a4f;
+  border-color: #ff8a6a;
+  cursor: not-allowed;
+}
+
+.viewer__resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 30px;
+  height: 2px;
+  background: #6a7a9a;
+  border-radius: 1px;
+}
+
+.viewer__resize-handle:hover::after,
+.viewer__resize-handle.is-dragging::after {
+  background: #fff;
+}
+
+.viewer__resize-handle.is-at-limit::after {
+  background: #ffcccc;
 }
 
 .viewer__resize-handle::before {
   content: "";
   position: absolute;
-  top: -8px;
-  bottom: -8px;
+  top: -10px;
+  bottom: -10px;
   left: -20px;
   right: -20px;
 }

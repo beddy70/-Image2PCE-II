@@ -1394,6 +1394,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_window_state::Builder::new().build())
         .invoke_handler(tauri::generate_handler![open_image, run_conversion, export_plain_text, export_binaries])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

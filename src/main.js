@@ -1189,6 +1189,9 @@ function setupViewerResize() {
   const handle = document.querySelector("#viewer-resize-handle");
   if (!viewer || !handle) return;
 
+  const MIN_HEIGHT = 450;
+  const MAX_HEIGHT = 1200;
+
   let isDragging = false;
   let startY = 0;
   let startHeight = 0;
@@ -1198,6 +1201,7 @@ function setupViewerResize() {
     startY = e.clientY;
     startHeight = viewer.offsetHeight;
     handle.classList.add("is-dragging");
+    handle.classList.remove("is-at-limit");
     document.body.style.cursor = "ns-resize";
     document.body.style.userSelect = "none";
     e.preventDefault();
@@ -1207,14 +1211,23 @@ function setupViewerResize() {
     if (!isDragging) return;
 
     const deltaY = e.clientY - startY;
-    const newHeight = Math.max(300, Math.min(1200, startHeight + deltaY));
+    const rawHeight = startHeight + deltaY;
+    const newHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, rawHeight));
+
+    // Visual feedback when hitting limits
+    if (rawHeight <= MIN_HEIGHT || rawHeight >= MAX_HEIGHT) {
+      handle.classList.add("is-at-limit");
+    } else {
+      handle.classList.remove("is-at-limit");
+    }
+
     viewer.style.setProperty("--viewer-height", `${newHeight}px`);
   });
 
   window.addEventListener("mouseup", () => {
     if (isDragging) {
       isDragging = false;
-      handle.classList.remove("is-dragging");
+      handle.classList.remove("is-dragging", "is-at-limit");
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       saveSettings();
