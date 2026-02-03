@@ -892,7 +892,6 @@ function saveSettings() {
     zoomInput: document.querySelector("#zoom-input")?.value,
     zoomOutput: document.querySelector("#zoom-output")?.value,
     crtMode: document.querySelector("#crt-mode")?.value,
-    crtBlur: document.querySelector("#crt-blur")?.value,
     viewerHeight: viewerHeight,
     viewerSplit: viewerSplit,
     curvePoints: state.curvePoints,
@@ -962,10 +961,6 @@ function loadSettings() {
       const el = document.querySelector("#crt-mode");
       if (el) el.value = settings.crtMode;
     }
-    if (settings.crtBlur) {
-      const el = document.querySelector("#crt-blur");
-      if (el) el.value = settings.crtBlur;
-    }
     if (settings.viewerHeight) {
       applyViewerHeight(settings.viewerHeight);
     }
@@ -1001,7 +996,6 @@ function setupSettingsAutoSave() {
     "#zoom-input",
     "#zoom-output",
     "#crt-mode",
-    "#crt-blur",
   ];
 
   inputs.forEach((selector) => {
@@ -1045,23 +1039,20 @@ function applyCrtMode(mode) {
 
 function applyCrtBlur() {
   const canvas = document.querySelector("#output-image-canvas");
-  const blurSlider = document.querySelector("#crt-blur");
   const crtMode = document.querySelector("#crt-mode")?.value;
 
-  if (!canvas || !blurSlider || !state.originalImageData) return;
+  if (!canvas || !state.originalImageData) return;
 
   const ctx = canvas.getContext("2d");
-  const sliderValue = parseInt(blurSlider.value, 10);
 
-  // If no CRT mode or blur is 0, restore original image
-  if (!crtMode || crtMode === "none" || sliderValue === 0) {
+  // If no CRT mode, restore original image (no blur)
+  if (!crtMode || crtMode === "none") {
     ctx.putImageData(state.originalImageData, 0, 0);
     return;
   }
 
-  // Apply box blur with the slider value as radius (0-100 maps to 0-3 radius)
-  // Using fractional blur for smooth transitions
-  const blurRadius = (sliderValue / 100) * 3;
+  // Apply fixed blur (value 4 maps to radius 0.12)
+  const blurRadius = (4 / 100) * 3;
   const blurredData = boxBlur(state.originalImageData, blurRadius);
   ctx.putImageData(blurredData, 0, 0);
 }
@@ -1320,9 +1311,6 @@ function bindActions() {
   document.querySelector("#crt-mode")?.addEventListener("change", (e) => {
     applyCrtMode(e.target.value);
   });
-
-  // CRT blur change
-  document.querySelector("#crt-blur")?.addEventListener("input", applyCrtBlur);
 
   // Background color input change - sync with color0 preview and state
   document.querySelector("#background-color").addEventListener("input", (e) => {

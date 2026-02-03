@@ -126,42 +126,42 @@ input[type="range"] {
 
 .viewer {
   display: grid;
-  grid-template-columns: var(--viewer-split, 1fr) 20px var(--viewer-split-right, 1fr);
-  gap: 8px;
+  grid-template-columns: var(--viewer-split, 1fr) 12px var(--viewer-split-right, 1fr);
+  gap: 4px;
   min-height: 450px;
   height: var(--viewer-height, 500px);
   position: relative;
 }
 
 .viewer__splitter {
-  background: #2a3348;
+  background: transparent;
   cursor: ew-resize;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.2s ease;
-  border-radius: 8px;
-  border: 1px solid #3a4560;
+  border-radius: 4px;
+  position: relative;
 }
 
 .viewer__splitter:hover,
 .viewer__splitter.is-dragging {
-  background: #3a4a6a;
-  border-color: #4f76ff;
+  background: rgba(79, 118, 255, 0.1);
 }
 
 .viewer__splitter::before {
   content: "";
-  width: 4px;
-  height: 60px;
-  background: #4a5a7a;
+  width: 3px;
+  height: 48px;
+  background: #3a4560;
   border-radius: 2px;
-  transition: background 0.2s ease;
+  transition: all 0.2s ease;
 }
 
 .viewer__splitter:hover::before,
 .viewer__splitter.is-dragging::before {
   background: #6a8aff;
+  height: 64px;
 }
 
 .viewer__resize-handle {
@@ -229,6 +229,8 @@ input[type="range"] {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .viewer__header {
@@ -249,7 +251,8 @@ input[type="range"] {
 
 .viewer__canvas {
   width: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   border-radius: 12px;
   border: 1px dashed #2a3142;
   display: flex;
@@ -272,8 +275,9 @@ input[type="range"] {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
   transform-origin: center;
   position: relative;
 }
@@ -379,7 +383,9 @@ input[type="range"] {
 .viewer__canvas-wrapper {
   position: relative;
   flex: 1;
-  min-height: 280px;
+  min-height: 0; /* Allow flex shrinking to sync with source panel */
+  display: flex;
+  flex-direction: column;
 }
 
 /* Progress overlay */
