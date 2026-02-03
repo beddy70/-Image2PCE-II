@@ -1390,6 +1390,47 @@ fn export_binaries(
     })
 }
 
+/// Save binary export to disk - creates a directory and writes 3 files
+#[tauri::command]
+fn save_binaries_to_disk(
+    base_path: String,
+    bat_data: Vec<u8>,
+    tiles_data: Vec<u8>,
+    pal_data: Vec<u8>,
+) -> Result<(), String> {
+    use std::fs;
+    use std::path::Path;
+
+    let base = Path::new(&base_path);
+
+    // Get the filename without extension for directory name
+    let dir_name = base.file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid path")?;
+
+    // Create directory path (same location as selected file, with filename as dir name)
+    let parent = base.parent().ok_or("Invalid parent directory")?;
+    let dir_path = parent.join(dir_name);
+
+    // Create the directory
+    fs::create_dir_all(&dir_path)
+        .map_err(|e| format!("Failed to create directory: {}", e))?;
+
+    // Write the 3 files
+    let bat_path = dir_path.join(format!("{}.bat", dir_name));
+    let tiles_path = dir_path.join(format!("{}.tiles", dir_name));
+    let pal_path = dir_path.join(format!("{}.pal", dir_name));
+
+    fs::write(&bat_path, &bat_data)
+        .map_err(|e| format!("Failed to write BAT file: {}", e))?;
+    fs::write(&tiles_path, &tiles_data)
+        .map_err(|e| format!("Failed to write tiles file: {}", e))?;
+    fs::write(&pal_path, &pal_data)
+        .map_err(|e| format!("Failed to write palette file: {}", e))?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1397,7 +1438,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![open_image, run_conversion, export_plain_text, export_binaries])
+        .invoke_handler(tauri::generate_handler![open_image, run_conversion, export_plain_text, export_binaries, save_binaries_to_disk])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

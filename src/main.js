@@ -850,7 +850,7 @@ async function exportBinaries() {
 
     const vramAddress = getVramAddress();
 
-    // Call Rust export function
+    // Call Rust export function to generate binary data
     const result = await invoke("export_binaries", {
       imageData: Array.from(imageData),
       palettes: state.palettes,
@@ -859,32 +859,27 @@ async function exportBinaries() {
       vramBaseAddress: vramAddress,
     });
 
-    // Show single save dialog - user picks base filename
+    // Show save dialog - user picks base filename
     const { save } = window.__TAURI__.dialog;
-    const { writeFile } = window.__TAURI__.fs;
 
     const basePath = await save({
-      defaultPath: "export.bat",
-      filters: [{ name: "BAT file", extensions: ["bat"] }],
+      defaultPath: "export",
+      filters: [{ name: "Export name", extensions: ["bin"] }],
     });
 
     if (!basePath) {
       return; // User cancelled
     }
 
-    // Derive the 3 filenames from the base path
-    // Remove extension and add .bat, .tile, .pal
-    const baseWithoutExt = basePath.replace(/\.[^.]+$/, "");
-    const batPath = baseWithoutExt + ".bat";
-    const tilePath = baseWithoutExt + ".tile";
-    const palPath = baseWithoutExt + ".pal";
+    // Call Rust to create directory and write files
+    await invoke("save_binaries_to_disk", {
+      basePath,
+      batData: result.bat,
+      tilesData: result.tiles,
+      palData: result.palettes,
+    });
 
-    // Write all 3 files
-    await writeFile(batPath, new Uint8Array(result.bat));
-    await writeFile(tilePath, new Uint8Array(result.tiles));
-    await writeFile(palPath, new Uint8Array(result.palettes));
-
-    console.info(`Binaires exportés: ${batPath}, ${tilePath}, ${palPath}`);
+    console.info(`Binaires exportés dans le répertoire`);
     console.info(`${result.unique_tile_count} tuiles uniques (${result.tile_count} total)`);
   } catch (error) {
     console.error("Erreur d'export binaire:", error);
@@ -990,14 +985,14 @@ function loadSettings() {
       const el = document.querySelector("#output-width-tiles");
       if (el) {
         el.value = settings.outputWidthTiles;
-        document.querySelector("#output-width-value").textContent = `${settings.outputWidthTiles} tuiles`;
+        document.querySelector("#output-width-value").textContent = `${settings.outputWidthTiles} (${settings.outputWidthTiles * 8} px)`;
       }
     }
     if (settings.outputHeightTiles) {
       const el = document.querySelector("#output-height-tiles");
       if (el) {
         el.value = settings.outputHeightTiles;
-        document.querySelector("#output-height-value").textContent = `${settings.outputHeightTiles} tuiles`;
+        document.querySelector("#output-height-value").textContent = `${settings.outputHeightTiles} (${settings.outputHeightTiles * 8} px)`;
       }
     }
     if (settings.viewerHeight) {
@@ -1350,10 +1345,12 @@ function bindActions() {
 
   // Output size sliders
   document.querySelector("#output-width-tiles")?.addEventListener("input", (e) => {
-    document.querySelector("#output-width-value").textContent = `${e.target.value} tuiles`;
+    const tiles = e.target.value;
+    document.querySelector("#output-width-value").textContent = `${tiles} (${tiles * 8} px)`;
   });
   document.querySelector("#output-height-tiles")?.addEventListener("input", (e) => {
-    document.querySelector("#output-height-value").textContent = `${e.target.value} tuiles`;
+    const tiles = e.target.value;
+    document.querySelector("#output-height-value").textContent = `${tiles} (${tiles * 8} px)`;
   });
 
   // CRT mode change
