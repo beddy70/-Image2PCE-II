@@ -46,6 +46,8 @@ fn run_conversion(
     background_color: String,
     keep_ratio: bool,
     curve_lut: Vec<u8>,
+    target_width: u32,
+    target_height: u32,
 ) -> Result<ConversionResult, String> {
     // Emit: loading image
     let _ = app.emit("conversion-progress", ProgressEvent {
@@ -63,8 +65,8 @@ fn run_conversion(
 
     let resized = resize_to_target(
         image,
-        256,
-        256,
+        target_width,
+        target_height,
         &resize_method,
         keep_ratio,
         &background_color,

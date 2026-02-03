@@ -13,7 +13,7 @@
       <header class="topbar">
         <div class="brand">
           <span class="brand__title">Image2PCE II</span>
-          <span class="brand__subtitle">Convertisseur d’images 256×256 PC-Engine</span>
+          <span class="brand__subtitle">Convertisseur d'images PC-Engine</span>
         </div>
         <div class="actions">
           <button class="btn" id="open-image">Open image</button>
@@ -79,6 +79,18 @@
           </label>
           <button class="btn btn--primary" id="run-conversion">Convertir</button>
         </div>
+        <div class="settings__group settings__group--size">
+          <label>
+            Largeur
+            <input id="output-width-tiles" type="range" min="32" max="128" value="32" />
+            <span id="output-width-value">32 tuiles</span>
+          </label>
+          <label>
+            Hauteur
+            <input id="output-height-tiles" type="range" min="32" max="64" value="32" />
+            <span id="output-height-value">32 tuiles</span>
+          </label>
+        </div>
         <div class="settings__group settings__group--curve">
           <div class="curve-editor">
             <div class="curve-editor__header">
@@ -118,7 +130,7 @@
         <div class="viewer__panel">
           <div class="viewer__header">
             <h2>Sortie</h2>
-            <span class="viewer__meta" id="output-meta">256×256, 32×32 tuiles</span>
+            <span class="viewer__meta" id="output-meta">En attente de conversion</span>
           </div>
           <div class="viewer__canvas-wrapper">
             <div class="viewer__canvas" id="output-canvas">

@@ -124,6 +124,12 @@ async function runConversion() {
   const color0Mode = document.querySelector("#color0-mode").value;
   const keepRatio = document.querySelector("#keep-ratio").checked;
 
+  // Get output dimensions from tile sliders
+  const widthTiles = parseInt(document.querySelector("#output-width-tiles").value, 10);
+  const heightTiles = parseInt(document.querySelector("#output-height-tiles").value, 10);
+  const targetWidth = widthTiles * 8;
+  const targetHeight = heightTiles * 8;
+
   // Use fixed color0 if mode is "fixed", otherwise use background-color input
   const backgroundColor = color0Mode === "fixed"
     ? state.fixedColor0
@@ -147,6 +153,8 @@ async function runConversion() {
       backgroundColor,
       keepRatio,
       curveLut,
+      targetWidth,
+      targetHeight,
     });
 
     const {
@@ -179,11 +187,15 @@ async function runConversion() {
     const outputCanvas = document.querySelector("#output-canvas");
     outputCanvas.innerHTML = `
       <div class="viewer__stage">
-        <canvas id="output-image-canvas" class="viewer__image" width="256" height="256"></canvas>
+        <canvas id="output-image-canvas" class="viewer__image" width="${targetWidth}" height="${targetHeight}"></canvas>
         <div class="tile-highlight" id="tile-highlight"></div>
       </div>
       <canvas class="tile-zoom" id="tile-zoom" width="80" height="80"></canvas>
     `;
+
+    // Store output dimensions in state for tile hover
+    state.outputWidth = targetWidth;
+    state.outputHeight = targetHeight;
 
     // Load image into canvas and store original data
     const img = new Image();
@@ -192,15 +204,21 @@ async function runConversion() {
       const ctx = canvas.getContext("2d");
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(img, 0, 0);
-      state.originalImageData = ctx.getImageData(0, 0, 256, 256);
+      state.originalImageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
 
       // Apply current blur setting
       applyCrtBlur();
     };
     img.src = `data:image/png;base64,${previewBase64}`;
 
+    // Calculate VRAM usage
+    const totalVram = tilesBytes + batBytes;
+    const vramKb = (totalVram / 1024).toFixed(1);
+    const vramExceeded = totalVram > 65536;
+
     const outputMeta = document.querySelector("#output-meta");
-    outputMeta.textContent = `${tileCount} tuiles (${uniqueTileCount} uniques, ${duplicates} doublons) — ${tilesBytes} octets`;
+    outputMeta.innerHTML = `${tileCount} tuiles (${uniqueTileCount} uniques, ${duplicates} doublons)<br>` +
+      `<span class="${vramExceeded ? 'vram-exceeded' : ''}">VRAM: ${vramKb} Ko (BAT: ${batBytes} + Tuiles: ${tilesBytes})${vramExceeded ? ' — capacité VRAM dépassée' : ''}</span>`;
 
     applyZoom("output");
     renderPalettes(palettes, tilePaletteMap);
@@ -421,12 +439,17 @@ function setupTileHover() {
     const mouseX = event.clientX - imgRect.left;
     const mouseY = event.clientY - imgRect.top;
 
-    // Convert to image coordinates (256x256)
+    // Convert to image coordinates
     const imgX = mouseX / zoom;
     const imgY = mouseY / zoom;
 
+    // Get output dimensions from state (default to 256 if not set)
+    const outputWidth = state.outputWidth || 256;
+    const outputHeight = state.outputHeight || 256;
+    const tilesPerRow = outputWidth / 8;
+
     // Check if within image bounds
-    if (imgX < 0 || imgX >= 256 || imgY < 0 || imgY >= 256) {
+    if (imgX < 0 || imgX >= outputWidth || imgY < 0 || imgY >= outputHeight) {
       tileHighlight.style.display = "none";
       clearPaletteHighlight();
       updatePaletteTooltip(null);
@@ -436,7 +459,7 @@ function setupTileHover() {
     // Calculate tile coordinates (8x8 tiles)
     const tileX = Math.floor(imgX / 8);
     const tileY = Math.floor(imgY / 8);
-    const tileIndex = tileY * 32 + tileX;
+    const tileIndex = tileY * tilesPerRow + tileX;
 
     // Update highlight position (add image offset within stage)
     tileHighlight.style.display = "block";
@@ -892,6 +915,8 @@ function saveSettings() {
     zoomInput: document.querySelector("#zoom-input")?.value,
     zoomOutput: document.querySelector("#zoom-output")?.value,
     crtMode: document.querySelector("#crt-mode")?.value,
+    outputWidthTiles: document.querySelector("#output-width-tiles")?.value,
+    outputHeightTiles: document.querySelector("#output-height-tiles")?.value,
     viewerHeight: viewerHeight,
     viewerSplit: viewerSplit,
     curvePoints: state.curvePoints,
@@ -961,6 +986,20 @@ function loadSettings() {
       const el = document.querySelector("#crt-mode");
       if (el) el.value = settings.crtMode;
     }
+    if (settings.outputWidthTiles) {
+      const el = document.querySelector("#output-width-tiles");
+      if (el) {
+        el.value = settings.outputWidthTiles;
+        document.querySelector("#output-width-value").textContent = `${settings.outputWidthTiles} tuiles`;
+      }
+    }
+    if (settings.outputHeightTiles) {
+      const el = document.querySelector("#output-height-tiles");
+      if (el) {
+        el.value = settings.outputHeightTiles;
+        document.querySelector("#output-height-value").textContent = `${settings.outputHeightTiles} tuiles`;
+      }
+    }
     if (settings.viewerHeight) {
       applyViewerHeight(settings.viewerHeight);
     }
@@ -996,6 +1035,8 @@ function setupSettingsAutoSave() {
     "#zoom-input",
     "#zoom-output",
     "#crt-mode",
+    "#output-width-tiles",
+    "#output-height-tiles",
   ];
 
   inputs.forEach((selector) => {
@@ -1306,6 +1347,14 @@ function bindActions() {
 
   // Color0 mode change
   document.querySelector("#color0-mode").addEventListener("change", updateColor0Preview);
+
+  // Output size sliders
+  document.querySelector("#output-width-tiles")?.addEventListener("input", (e) => {
+    document.querySelector("#output-width-value").textContent = `${e.target.value} tuiles`;
+  });
+  document.querySelector("#output-height-tiles")?.addEventListener("input", (e) => {
+    document.querySelector("#output-height-value").textContent = `${e.target.value} tuiles`;
+  });
 
   // CRT mode change
   document.querySelector("#crt-mode")?.addEventListener("change", (e) => {

@@ -249,6 +249,11 @@ input[type="range"] {
   color: #8d97a8;
 }
 
+.vram-exceeded {
+  color: #ff4444;
+  font-weight: bold;
+}
+
 .viewer__canvas {
   width: 100%;
   flex: 1;
