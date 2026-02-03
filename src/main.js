@@ -32,12 +32,14 @@ const state = {
     height: 0,
     isEditing: false,
     isDrawing: false,
-    tool: "brush", // "brush", "eraser", "circle", "rectangle"
+    tool: "brush", // "brush", "eraser", "circle", "rectangle", "polygon"
     brushSize: 20,
     // Shape drawing state
     shapeStart: null, // { x, y } start point for shapes
     previewCanvas: null, // temporary canvas for shape preview
     shapeFillMode: "black", // "black" (dithering) or "white" (no dithering)
+    // Polygon drawing state
+    polygonPoints: [], // array of {x, y} points
     // Undo/redo history
     history: [],
     historyIndex: -1,
@@ -169,8 +171,13 @@ function setupMaskDrawing() {
   maskCanvas.addEventListener("mousemove", (e) => {
     updateBrushCursor(e);
     drawOnMask(e);
+    // Update polygon preview while moving
+    if (state.mask.tool === "polygon" && state.mask.polygonPoints.length > 0) {
+      drawPolygonPreview(e);
+    }
   });
   maskCanvas.addEventListener("mouseup", (e) => stopMaskDraw(e));
+  maskCanvas.addEventListener("dblclick", handlePolygonDoubleClick);
   maskCanvas.addEventListener("mouseleave", (e) => {
     // For brush/eraser, stop drawing on leave
     // For shapes, keep drawing state but hide cursor
@@ -204,6 +211,10 @@ function setupMaskDrawing() {
         if (state.mask.isDrawing && (state.mask.tool === "circle" || state.mask.tool === "rectangle")) {
           drawOnMask(e);
         }
+        // Update polygon preview
+        if (state.mask.tool === "polygon" && state.mask.polygonPoints.length > 0) {
+          drawPolygonPreview(e);
+        }
       }
     });
     inputCanvas.addEventListener("mouseleave", hideBrushCursor);
@@ -213,9 +224,17 @@ function setupMaskDrawing() {
 function startMaskDraw(event) {
   if (!state.mask.isEditing) return;
   event.preventDefault(); // Prevent text selection and native drag
-  state.mask.isDrawing = true;
 
   const tool = state.mask.tool;
+
+  if (tool === "polygon") {
+    // Polygon uses click-to-add-point, not drag
+    handlePolygonClick(event);
+    return;
+  }
+
+  state.mask.isDrawing = true;
+
   if (tool === "circle" || tool === "rectangle") {
     // Store start point for shape drawing
     const maskCanvas = state.mask.canvas;
@@ -316,12 +335,157 @@ function finalizeShape(event) {
   }
 }
 
+// Polygon tool functions
+function handlePolygonClick(event) {
+  const maskCanvas = state.mask.canvas;
+  const canvasRect = maskCanvas.getBoundingClientRect();
+  const scaleX = maskCanvas.width / canvasRect.width;
+  const scaleY = maskCanvas.height / canvasRect.height;
+
+  const x = (event.clientX - canvasRect.left) * scaleX;
+  const y = (event.clientY - canvasRect.top) * scaleY;
+
+  // Check if clicking near the first point to close polygon
+  if (state.mask.polygonPoints.length >= 3) {
+    const firstPoint = state.mask.polygonPoints[0];
+    const distance = Math.sqrt((x - firstPoint.x) ** 2 + (y - firstPoint.y) ** 2);
+    const closeThreshold = 15; // pixels in canvas coords
+
+    if (distance < closeThreshold) {
+      finalizePolygon(event);
+      return;
+    }
+  }
+
+  // Add point to polygon
+  state.mask.polygonPoints.push({ x, y });
+
+  // Create preview canvas if first point
+  if (state.mask.polygonPoints.length === 1) {
+    createShapePreviewCanvas();
+  }
+
+  // Update preview
+  drawPolygonPreview(event);
+}
+
+function handlePolygonDoubleClick(event) {
+  if (state.mask.tool !== "polygon" || state.mask.polygonPoints.length < 3) return;
+  finalizePolygon(event);
+}
+
+function finalizePolygon(event) {
+  const points = state.mask.polygonPoints;
+  if (points.length < 3) {
+    cancelPolygon();
+    return;
+  }
+
+  const ctx = state.mask.ctx;
+
+  // Determine fill color
+  const baseIsWhite = state.mask.shapeFillMode === "white";
+  const useWhite = event?.shiftKey ? !baseIsWhite : baseIsWhite;
+  const fillColor = useWhite ? "#FFFFFF" : "#000000";
+
+  ctx.fillStyle = fillColor;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  // Clean up
+  state.mask.polygonPoints = [];
+  removeShapePreviewCanvas();
+  saveMaskState();
+}
+
+function cancelPolygon() {
+  state.mask.polygonPoints = [];
+  removeShapePreviewCanvas();
+}
+
+function drawPolygonPreview(event) {
+  const preview = state.mask.previewCanvas;
+  if (!preview) return;
+
+  const ctx = preview.getContext("2d");
+  const points = state.mask.polygonPoints;
+
+  // Clear preview
+  ctx.clearRect(0, 0, preview.width, preview.height);
+
+  if (points.length === 0) return;
+
+  // Get current mouse position for rubber band line
+  const maskCanvas = state.mask.canvas;
+  const canvasRect = maskCanvas.getBoundingClientRect();
+  const scaleX = maskCanvas.width / canvasRect.width;
+  const scaleY = maskCanvas.height / canvasRect.height;
+  const mouseX = (event.clientX - canvasRect.left) * scaleX;
+  const mouseY = (event.clientY - canvasRect.top) * scaleY;
+
+  // Determine colors
+  const baseIsWhite = state.mask.shapeFillMode === "white";
+  const useWhite = event?.shiftKey ? !baseIsWhite : baseIsWhite;
+  const fillColor = useWhite ? "rgba(255, 255, 255, 0.3)" : "rgba(0, 0, 0, 0.3)";
+  const strokeColor = useWhite ? "#FFFFFF" : "#000000";
+
+  // Draw filled polygon preview
+  if (points.length >= 2) {
+    ctx.fillStyle = fillColor;
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.lineTo(mouseX, mouseY);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Draw outline
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y);
+  }
+  ctx.lineTo(mouseX, mouseY);
+  ctx.stroke();
+
+  // Draw points
+  ctx.fillStyle = strokeColor;
+  for (const point of points) {
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Highlight first point if we can close
+  if (points.length >= 3) {
+    const firstPoint = points[0];
+    const distance = Math.sqrt((mouseX - firstPoint.x) ** 2 + (mouseY - firstPoint.y) ** 2);
+    if (distance < 15) {
+      ctx.strokeStyle = "#00FF00";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(firstPoint.x, firstPoint.y, 8, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+}
+
 function updateBrushCursor(event) {
   const brushCursor = document.querySelector("#brush-cursor");
   if (!brushCursor || !state.mask.isEditing) return;
 
   // Hide cursor for shape tools
-  if (state.mask.tool === "circle" || state.mask.tool === "rectangle") {
+  if (state.mask.tool === "circle" || state.mask.tool === "rectangle" || state.mask.tool === "polygon") {
     brushCursor.style.display = "none";
     return;
   }
@@ -463,16 +627,22 @@ function toggleMaskEditing(enabled) {
 }
 
 function setMaskTool(tool) {
+  // Cancel any ongoing polygon when switching tools
+  if (state.mask.tool === "polygon" && tool !== "polygon") {
+    cancelPolygon();
+  }
+
   state.mask.tool = tool;
   document.querySelector("#mask-brush")?.classList.toggle("is-active", tool === "brush");
   document.querySelector("#mask-eraser")?.classList.toggle("is-active", tool === "eraser");
   document.querySelector("#mask-circle")?.classList.toggle("is-active", tool === "circle");
   document.querySelector("#mask-rectangle")?.classList.toggle("is-active", tool === "rectangle");
+  document.querySelector("#mask-polygon")?.classList.toggle("is-active", tool === "polygon");
 
   // Add crosshair cursor class for shape tools
   const maskCanvas = document.querySelector("#mask-canvas");
   if (maskCanvas) {
-    const isShapeTool = tool === "circle" || tool === "rectangle";
+    const isShapeTool = tool === "circle" || tool === "rectangle" || tool === "polygon";
     maskCanvas.classList.toggle("shape-tool", isShapeTool);
   }
 
@@ -488,11 +658,13 @@ function toggleShapeFillMode() {
 function updateShapeFillModeIndicator() {
   const circleBtn = document.querySelector("#mask-circle");
   const rectBtn = document.querySelector("#mask-rectangle");
+  const polygonBtn = document.querySelector("#mask-polygon");
   const isWhite = state.mask.shapeFillMode === "white";
 
   // Add visual indicator for erase mode
   circleBtn?.classList.toggle("erase-mode", isWhite);
   rectBtn?.classList.toggle("erase-mode", isWhite);
+  polygonBtn?.classList.toggle("erase-mode", isWhite);
 }
 
 function clearMask(color) {
@@ -1876,6 +2048,12 @@ function bindActions() {
     setMaskTool("rectangle");
   });
   document.querySelector("#mask-rectangle")?.addEventListener("dblclick", () => {
+    toggleShapeFillMode();
+  });
+  document.querySelector("#mask-polygon")?.addEventListener("click", () => {
+    setMaskTool("polygon");
+  });
+  document.querySelector("#mask-polygon")?.addEventListener("dblclick", () => {
     toggleShapeFillMode();
   });
   document.querySelector("#mask-brush-size")?.addEventListener("input", (e) => {
