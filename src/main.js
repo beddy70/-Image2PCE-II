@@ -64,8 +64,10 @@ async function openImage() {
   const fileUrl = convertFileSrc(selected);
   inputCanvas.innerHTML = `
     <div class="viewer__stage">
-      <img src="${fileUrl}" alt="source" class="viewer__image" id="source-image" draggable="false" />
-      <canvas id="mask-canvas" class="mask-canvas"></canvas>
+      <div class="viewer__image-wrapper">
+        <img src="${fileUrl}" alt="source" class="viewer__image" id="source-image" draggable="false" />
+        <canvas id="mask-canvas" class="mask-canvas"></canvas>
+      </div>
     </div>
     <div id="brush-cursor" class="brush-cursor"></div>
     <div class="viewer__path">${selected}</div>
@@ -153,16 +155,17 @@ function updateBrushCursor(event) {
   if (!brushCursor || !state.mask.isEditing) return;
 
   const inputCanvas = document.querySelector("#input-canvas");
-  if (!inputCanvas) return;
+  const maskCanvas = state.mask.canvas;
+  if (!inputCanvas || !maskCanvas) return;
 
   const inputRect = inputCanvas.getBoundingClientRect();
+  const canvasRect = maskCanvas.getBoundingClientRect();
 
-  // Get zoom level
-  const zoomSlider = document.querySelector("#zoom-input");
-  const zoom = zoomSlider ? Number(zoomSlider.value) : 1;
+  // Calculate scale between internal resolution and displayed size
+  const scale = canvasRect.width / maskCanvas.width;
 
   // Size of brush cursor in screen pixels
-  const size = state.mask.brushSize * zoom;
+  const size = state.mask.brushSize * scale;
 
   // Position relative to input canvas container
   const x = event.clientX - inputRect.left;
@@ -194,24 +197,22 @@ function drawOnMask(event) {
 
   const maskCanvas = state.mask.canvas;
   const ctx = state.mask.ctx;
-  const rect = maskCanvas.getBoundingClientRect();
-
-  // Get zoom level
-  const zoomSlider = document.querySelector("#zoom-input");
-  const zoom = zoomSlider ? Number(zoomSlider.value) : 1;
-
-  // Calculate position considering zoom and canvas transform
-  const stage = document.querySelector("#input-canvas .viewer__stage");
-  const stageRect = stage.getBoundingClientRect();
   const canvasRect = maskCanvas.getBoundingClientRect();
 
-  // Mouse position relative to canvas, accounting for zoom
-  const x = (event.clientX - canvasRect.left) / zoom;
-  const y = (event.clientY - canvasRect.top) / zoom;
+  // Calculate scale between displayed size and internal resolution
+  const scaleX = maskCanvas.width / canvasRect.width;
+  const scaleY = maskCanvas.height / canvasRect.height;
+
+  // Mouse position relative to canvas, converted to internal coordinates
+  const x = (event.clientX - canvasRect.left) * scaleX;
+  const y = (event.clientY - canvasRect.top) * scaleY;
+
+  // Brush size in internal canvas coordinates
+  const brushRadius = (state.mask.brushSize / 2) * scaleX;
 
   // Draw circle
   ctx.beginPath();
-  ctx.arc(x, y, state.mask.brushSize / 2, 0, Math.PI * 2);
+  ctx.arc(x, y, brushRadius, 0, Math.PI * 2);
   ctx.fillStyle = state.mask.tool === "brush" ? "#000000" : "#FFFFFF";
   ctx.fill();
 }
