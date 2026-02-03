@@ -36,6 +36,51 @@ struct ConversionResult {
     unique_tile_count: usize,
 }
 
+/// Resize mask from source dimensions to target dimensions using nearest neighbor
+fn resize_mask(mask: &[u8], src_width: u32, src_height: u32, dst_width: u32, dst_height: u32) -> Vec<u8> {
+    let mut result = vec![255u8; (dst_width * dst_height) as usize];
+
+    for y in 0..dst_height {
+        for x in 0..dst_width {
+            // Map destination coords to source coords
+            let src_x = (x as f32 * src_width as f32 / dst_width as f32) as u32;
+            let src_y = (y as f32 * src_height as f32 / dst_height as f32) as u32;
+            let src_idx = (src_y * src_width + src_x) as usize;
+            let dst_idx = (y * dst_width + x) as usize;
+
+            if src_idx < mask.len() {
+                result[dst_idx] = mask[src_idx];
+            }
+        }
+    }
+
+    result
+}
+
+/// Combine two images based on mask: black (0) = use dithered, white (255) = use non-dithered
+fn combine_with_mask(dithered: &RgbaImage, non_dithered: &RgbaImage, mask: &[u8]) -> RgbaImage {
+    let (width, height) = dithered.dimensions();
+    let mut result = RgbaImage::new(width, height);
+
+    for y in 0..height {
+        for x in 0..width {
+            let idx = (y * width + x) as usize;
+            let mask_value = mask.get(idx).copied().unwrap_or(255);
+
+            // mask < 128 means use dithered (black areas), otherwise use non-dithered
+            let pixel = if mask_value < 128 {
+                *dithered.get_pixel(x, y)
+            } else {
+                *non_dithered.get_pixel(x, y)
+            };
+
+            result.put_pixel(x, y, pixel);
+        }
+    }
+
+    result
+}
+
 #[tauri::command]
 fn run_conversion(
     app: AppHandle,
@@ -48,6 +93,10 @@ fn run_conversion(
     curve_lut: Vec<u8>,
     target_width: u32,
     target_height: u32,
+    use_dither_mask: bool,
+    dither_mask: Vec<u8>,
+    mask_width: u32,
+    mask_height: u32,
 ) -> Result<ConversionResult, String> {
     // Emit: loading image
     let _ = app.emit("conversion-progress", ProgressEvent {
@@ -110,11 +159,31 @@ fn run_conversion(
     });
 
     // Second pass: apply dithering with the actual tile palettes (using curved image)
-    let preview = apply_tile_palettes_with_dither(
-        &curved_image.to_rgba8(),
-        &palette_result,
-        &dither_mode,
-    )?;
+    let preview = if use_dither_mask && !dither_mask.is_empty() && dither_mode != "none" {
+        // Generate both dithered and non-dithered versions
+        let dithered = apply_tile_palettes_with_dither(
+            &curved_image.to_rgba8(),
+            &palette_result,
+            &dither_mode,
+        )?;
+        let non_dithered = apply_tile_palettes_with_dither(
+            &curved_image.to_rgba8(),
+            &palette_result,
+            "none",
+        )?;
+
+        // Resize mask to target dimensions
+        let resized_mask = resize_mask(&dither_mask, mask_width, mask_height, target_width, target_height);
+
+        // Combine based on mask (black = dithered, white = non-dithered)
+        combine_with_mask(&dithered, &non_dithered, &resized_mask)
+    } else {
+        apply_tile_palettes_with_dither(
+            &curved_image.to_rgba8(),
+            &palette_result,
+            &dither_mode,
+        )?
+    };
 
     // Emit: encoding
     let _ = app.emit("conversion-progress", ProgressEvent {

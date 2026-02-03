@@ -326,6 +326,72 @@ input[type="range"] {
   width: 140px;
 }
 
+/* Mask canvas overlay */
+.mask-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  transition: opacity 0.2s ease;
+}
+
+.mask-canvas.is-visible {
+  opacity: 0.5;
+}
+
+.mask-canvas.is-editing {
+  opacity: 0.5;
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+/* Mask toolbar */
+.viewer__toolbar--mask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mask-tools {
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.mask-tools.is-visible {
+  display: flex;
+}
+
+.mask-brush-size {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-direction: row;
+  font-size: 11px;
+}
+
+.mask-brush-size input[type="range"] {
+  width: 80px;
+}
+
+.mask-brush-size span:last-child {
+  min-width: 24px;
+  text-align: right;
+}
+
+.btn--icon {
+  padding: 4px 8px;
+  font-size: 14px;
+  min-width: 32px;
+}
+
+.btn--icon.is-active {
+  background: #4f76ff;
+  border-color: #6a8aff;
+}
+
 .palette-tooltip {
   display: flex;
   gap: 4px;

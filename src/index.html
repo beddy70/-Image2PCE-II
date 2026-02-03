@@ -116,8 +116,21 @@
           <div class="viewer__canvas" id="input-canvas">
             <p>Chargez une image pour commencer.</p>
           </div>
-          <div class="viewer__toolbar">
-            <span>Masque dithering : mode édition</span>
+          <div class="viewer__toolbar viewer__toolbar--mask" id="mask-toolbar">
+            <button class="btn btn--small btn--icon" id="mask-toggle" title="Activer/désactiver l'édition du masque">
+              <span class="mask-toggle-icon">✏️</span>
+            </button>
+            <div class="mask-tools" id="mask-tools">
+              <button class="btn btn--small btn--icon is-active" id="mask-brush" title="Pinceau (zone avec dithering)">🖌️</button>
+              <button class="btn btn--small btn--icon" id="mask-eraser" title="Gomme (zone sans dithering)">🧽</button>
+              <label class="mask-brush-size">
+                <span>Taille</span>
+                <input type="range" id="mask-brush-size" min="5" max="100" value="20" />
+                <span id="mask-brush-size-value">20</span>
+              </label>
+              <button class="btn btn--small" id="mask-clear-white" title="Tout effacer (sans dithering)">Effacer</button>
+              <button class="btn btn--small" id="mask-fill-black" title="Tout remplir (avec dithering)">Remplir</button>
+            </div>
           </div>
           <div class="viewer__zoom">
             <label>

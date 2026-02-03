@@ -24,6 +24,17 @@ const state = {
     input: { x: 0, y: 0, isDragging: false, lastX: 0, lastY: 0 },
     output: { x: 0, y: 0, isDragging: false, lastX: 0, lastY: 0 },
   },
+  // Dither mask editor state
+  mask: {
+    canvas: null,
+    ctx: null,
+    width: 0,
+    height: 0,
+    isEditing: false,
+    isDrawing: false,
+    tool: "brush", // "brush" or "eraser"
+    brushSize: 20,
+  },
   // Curve editor: 9 control points for RGB333 thresholds (input → output)
   // Default linear mapping: input 0,32,64,96,128,160,192,224,255 → output 0,32,64,96,128,160,192,224,255
   curvePoints: [
@@ -53,11 +64,132 @@ async function openImage() {
   const fileUrl = convertFileSrc(selected);
   inputCanvas.innerHTML = `
     <div class="viewer__stage">
-      <img src="${fileUrl}" alt="source" class="viewer__image" />
+      <img src="${fileUrl}" alt="source" class="viewer__image" id="source-image" />
+      <canvas id="mask-canvas" class="mask-canvas"></canvas>
     </div>
     <div class="viewer__path">${selected}</div>
   `;
+
+  // Wait for image to load to get dimensions for mask
+  const sourceImg = document.querySelector("#source-image");
+  sourceImg.onload = () => {
+    initMaskCanvas(sourceImg.naturalWidth, sourceImg.naturalHeight);
+  };
+
   applyZoom("input");
+}
+
+function initMaskCanvas(width, height) {
+  const maskCanvas = document.querySelector("#mask-canvas");
+  if (!maskCanvas) return;
+
+  maskCanvas.width = width;
+  maskCanvas.height = height;
+
+  state.mask.canvas = maskCanvas;
+  state.mask.ctx = maskCanvas.getContext("2d");
+  state.mask.width = width;
+  state.mask.height = height;
+
+  // Initialize mask as white (no dithering by default)
+  state.mask.ctx.fillStyle = "#FFFFFF";
+  state.mask.ctx.fillRect(0, 0, width, height);
+
+  // Setup mask drawing events
+  setupMaskDrawing();
+}
+
+function setupMaskDrawing() {
+  const maskCanvas = state.mask.canvas;
+  if (!maskCanvas) return;
+
+  // Drawing on mask canvas
+  maskCanvas.addEventListener("mousedown", startMaskDraw);
+  maskCanvas.addEventListener("mousemove", drawOnMask);
+  maskCanvas.addEventListener("mouseup", stopMaskDraw);
+  maskCanvas.addEventListener("mouseleave", stopMaskDraw);
+}
+
+function startMaskDraw(event) {
+  if (!state.mask.isEditing) return;
+  state.mask.isDrawing = true;
+  drawOnMask(event);
+}
+
+function stopMaskDraw() {
+  state.mask.isDrawing = false;
+}
+
+function drawOnMask(event) {
+  if (!state.mask.isDrawing || !state.mask.isEditing) return;
+
+  const maskCanvas = state.mask.canvas;
+  const ctx = state.mask.ctx;
+  const rect = maskCanvas.getBoundingClientRect();
+
+  // Get zoom level
+  const zoomSlider = document.querySelector("#zoom-input");
+  const zoom = zoomSlider ? Number(zoomSlider.value) : 1;
+
+  // Calculate position considering zoom and canvas transform
+  const stage = document.querySelector("#input-canvas .viewer__stage");
+  const stageRect = stage.getBoundingClientRect();
+  const canvasRect = maskCanvas.getBoundingClientRect();
+
+  // Mouse position relative to canvas, accounting for zoom
+  const x = (event.clientX - canvasRect.left) / zoom;
+  const y = (event.clientY - canvasRect.top) / zoom;
+
+  // Draw circle
+  ctx.beginPath();
+  ctx.arc(x, y, state.mask.brushSize / 2, 0, Math.PI * 2);
+  ctx.fillStyle = state.mask.tool === "brush" ? "#000000" : "#FFFFFF";
+  ctx.fill();
+}
+
+function toggleMaskEditing(enabled) {
+  state.mask.isEditing = enabled;
+  const maskCanvas = document.querySelector("#mask-canvas");
+  const maskTools = document.querySelector("#mask-tools");
+  const toggleBtn = document.querySelector("#mask-toggle");
+
+  if (maskCanvas) {
+    maskCanvas.classList.toggle("is-editing", enabled);
+    maskCanvas.classList.toggle("is-visible", enabled);
+  }
+  if (maskTools) {
+    maskTools.classList.toggle("is-visible", enabled);
+  }
+  if (toggleBtn) {
+    toggleBtn.classList.toggle("is-active", enabled);
+  }
+}
+
+function setMaskTool(tool) {
+  state.mask.tool = tool;
+  document.querySelector("#mask-brush")?.classList.toggle("is-active", tool === "brush");
+  document.querySelector("#mask-eraser")?.classList.toggle("is-active", tool === "eraser");
+}
+
+function clearMask(color) {
+  const ctx = state.mask.ctx;
+  if (!ctx) return;
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, state.mask.width, state.mask.height);
+}
+
+function getMaskData() {
+  if (!state.mask.ctx || !state.mask.width || !state.mask.height) {
+    return null;
+  }
+  const imageData = state.mask.ctx.getImageData(0, 0, state.mask.width, state.mask.height);
+  // Convert to binary array (0 or 255 for each pixel)
+  const maskData = new Uint8Array(state.mask.width * state.mask.height);
+  for (let i = 0; i < maskData.length; i++) {
+    // Use red channel to determine mask value (black = 0, white = 255)
+    maskData[i] = imageData.data[i * 4] < 128 ? 0 : 255;
+  }
+  return Array.from(maskData);
 }
 
 function showProgress(show, text = "Conversion en cours...") {
@@ -145,6 +277,10 @@ async function runConversion() {
     // Get the curve lookup table for RGB333 quantization
     const curveLut = getCurveLUT();
 
+    // Get dither mask data if enabled
+    const useDitherMask = document.querySelector("#dither-mask")?.checked || false;
+    const maskData = useDitherMask ? getMaskData() : null;
+
     const conversionResult = await invoke("run_conversion", {
       inputPath: state.inputImage,
       resizeMethod,
@@ -155,6 +291,10 @@ async function runConversion() {
       curveLut,
       targetWidth,
       targetHeight,
+      useDitherMask: useDitherMask && maskData !== null,
+      ditherMask: maskData || [],
+      maskWidth: state.mask.width || 0,
+      maskHeight: state.mask.height || 0,
     });
 
     const {
@@ -1368,6 +1508,27 @@ function bindActions() {
   document.querySelector("#output-height-tiles")?.addEventListener("input", (e) => {
     const tiles = e.target.value;
     document.querySelector("#output-height-value").textContent = `${tiles} (${tiles * 8} px)`;
+  });
+
+  // Mask editor controls
+  document.querySelector("#mask-toggle")?.addEventListener("click", () => {
+    toggleMaskEditing(!state.mask.isEditing);
+  });
+  document.querySelector("#mask-brush")?.addEventListener("click", () => {
+    setMaskTool("brush");
+  });
+  document.querySelector("#mask-eraser")?.addEventListener("click", () => {
+    setMaskTool("eraser");
+  });
+  document.querySelector("#mask-brush-size")?.addEventListener("input", (e) => {
+    state.mask.brushSize = Number(e.target.value);
+    document.querySelector("#mask-brush-size-value").textContent = e.target.value;
+  });
+  document.querySelector("#mask-clear-white")?.addEventListener("click", () => {
+    clearMask("#FFFFFF");
+  });
+  document.querySelector("#mask-fill-black")?.addEventListener("click", () => {
+    clearMask("#000000");
   });
 
   // CRT mode change
