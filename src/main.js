@@ -1043,11 +1043,17 @@ function setupDrag(target) {
   if (!canvas) {
     return;
   }
+  // Prevent native text selection during drag
+  canvas.addEventListener("selectstart", (event) => {
+    event.preventDefault();
+  });
+
   canvas.addEventListener("mousedown", (event) => {
     // Don't start drag if mask editing is active on input canvas, unless Shift is held
     if (target === "input" && state.mask.isEditing && !event.shiftKey) {
       return;
     }
+    event.preventDefault(); // Prevent text selection
     const dragState = state.drag[target];
     dragState.isDragging = true;
     dragState.lastX = event.clientX;
