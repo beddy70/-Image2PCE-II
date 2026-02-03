@@ -252,6 +252,24 @@ function clearMask(color) {
   ctx.fillRect(0, 0, state.mask.width, state.mask.height);
 }
 
+function invertMask() {
+  const ctx = state.mask.ctx;
+  if (!ctx || !state.mask.width || !state.mask.height) return;
+
+  const imageData = ctx.getImageData(0, 0, state.mask.width, state.mask.height);
+  const data = imageData.data;
+
+  // Invert each pixel (black <-> white)
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 255 - data[i];       // R
+    data[i + 1] = 255 - data[i + 1]; // G
+    data[i + 2] = 255 - data[i + 2]; // B
+    // Alpha stays the same
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+}
+
 function getMaskData() {
   if (!state.mask.ctx || !state.mask.width || !state.mask.height) {
     return null;
@@ -589,8 +607,8 @@ function setupDrag(target) {
     return;
   }
   canvas.addEventListener("mousedown", (event) => {
-    // Don't start drag if mask editing is active on input canvas
-    if (target === "input" && state.mask.isEditing) {
+    // Don't start drag if mask editing is active on input canvas, unless Shift is held
+    if (target === "input" && state.mask.isEditing && !event.shiftKey) {
       return;
     }
     const dragState = state.drag[target];
@@ -1607,6 +1625,9 @@ function bindActions() {
   });
   document.querySelector("#mask-fill-black")?.addEventListener("click", () => {
     clearMask("#000000");
+  });
+  document.querySelector("#mask-invert")?.addEventListener("click", () => {
+    invertMask();
   });
 
   // CRT mode change
