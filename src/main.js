@@ -32,8 +32,11 @@ const state = {
     height: 0,
     isEditing: false,
     isDrawing: false,
-    tool: "brush", // "brush" or "eraser"
+    tool: "brush", // "brush", "eraser", "circle", "rectangle"
     brushSize: 20,
+    // Shape drawing state
+    shapeStart: null, // { x, y } start point for shapes
+    previewCanvas: null, // temporary canvas for shape preview
     // Undo/redo history
     history: [],
     historyIndex: -1,
@@ -166,9 +169,13 @@ function setupMaskDrawing() {
     updateBrushCursor(e);
     drawOnMask(e);
   });
-  maskCanvas.addEventListener("mouseup", stopMaskDraw);
-  maskCanvas.addEventListener("mouseleave", () => {
-    stopMaskDraw();
+  maskCanvas.addEventListener("mouseup", (e) => stopMaskDraw(e));
+  maskCanvas.addEventListener("mouseleave", (e) => {
+    // For brush/eraser, stop drawing on leave
+    // For shapes, keep drawing state but hide cursor
+    if (state.mask.tool === "brush" || state.mask.tool === "eraser") {
+      stopMaskDraw(e);
+    }
     hideBrushCursor();
   });
   maskCanvas.addEventListener("mouseenter", () => {
@@ -180,11 +187,22 @@ function setupMaskDrawing() {
   // Prevent native drag & drop
   maskCanvas.addEventListener("dragstart", (e) => e.preventDefault());
 
+  // Document-level mouseup for shape tools (when releasing outside canvas)
+  document.addEventListener("mouseup", (e) => {
+    if (state.mask.isDrawing && (state.mask.tool === "circle" || state.mask.tool === "rectangle")) {
+      stopMaskDraw(e);
+    }
+  });
+
   // Also track mouse on the whole input canvas for brush cursor
   if (inputCanvas) {
     inputCanvas.addEventListener("mousemove", (e) => {
       if (state.mask.isEditing) {
         updateBrushCursor(e);
+        // For shape tools, update preview even outside mask canvas
+        if (state.mask.isDrawing && (state.mask.tool === "circle" || state.mask.tool === "rectangle")) {
+          drawOnMask(e);
+        }
       }
     });
     inputCanvas.addEventListener("mouseleave", hideBrushCursor);
@@ -195,20 +213,115 @@ function startMaskDraw(event) {
   if (!state.mask.isEditing) return;
   event.preventDefault(); // Prevent text selection and native drag
   state.mask.isDrawing = true;
-  drawOnMask(event);
+
+  const tool = state.mask.tool;
+  if (tool === "circle" || tool === "rectangle") {
+    // Store start point for shape drawing
+    const maskCanvas = state.mask.canvas;
+    const canvasRect = maskCanvas.getBoundingClientRect();
+    const scaleX = maskCanvas.width / canvasRect.width;
+    const scaleY = maskCanvas.height / canvasRect.height;
+    state.mask.shapeStart = {
+      x: (event.clientX - canvasRect.left) * scaleX,
+      y: (event.clientY - canvasRect.top) * scaleY,
+    };
+    // Create preview canvas
+    createShapePreviewCanvas();
+  } else {
+    drawOnMask(event);
+  }
 }
 
-function stopMaskDraw() {
+function stopMaskDraw(event) {
   if (state.mask.isDrawing) {
+    const tool = state.mask.tool;
+    if ((tool === "circle" || tool === "rectangle") && state.mask.shapeStart && event) {
+      // Finalize shape on mask
+      finalizeShape(event);
+    }
     state.mask.isDrawing = false;
+    state.mask.shapeStart = null;
+    removeShapePreviewCanvas();
     // Save state after drawing stroke is complete
     saveMaskState();
+  }
+}
+
+function createShapePreviewCanvas() {
+  // Create a temporary canvas for shape preview
+  const maskCanvas = state.mask.canvas;
+  if (!maskCanvas) return;
+
+  const wrapper = maskCanvas.parentElement;
+  let preview = wrapper.querySelector(".mask-preview-canvas");
+  if (!preview) {
+    preview = document.createElement("canvas");
+    preview.className = "mask-preview-canvas";
+    preview.width = maskCanvas.width;
+    preview.height = maskCanvas.height;
+    preview.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 15;
+    `;
+    wrapper.appendChild(preview);
+  }
+  state.mask.previewCanvas = preview;
+}
+
+function removeShapePreviewCanvas() {
+  if (state.mask.previewCanvas) {
+    state.mask.previewCanvas.remove();
+    state.mask.previewCanvas = null;
+  }
+}
+
+function finalizeShape(event) {
+  const maskCanvas = state.mask.canvas;
+  const ctx = state.mask.ctx;
+  const canvasRect = maskCanvas.getBoundingClientRect();
+  const scaleX = maskCanvas.width / canvasRect.width;
+  const scaleY = maskCanvas.height / canvasRect.height;
+
+  const startX = state.mask.shapeStart.x;
+  const startY = state.mask.shapeStart.y;
+  const endX = (event.clientX - canvasRect.left) * scaleX;
+  const endY = (event.clientY - canvasRect.top) * scaleY;
+
+  // Determine fill color based on Shift key (Shift = erase/white)
+  const fillColor = event.shiftKey ? "#FFFFFF" : "#000000";
+
+  ctx.fillStyle = fillColor;
+
+  if (state.mask.tool === "circle") {
+    const radiusX = Math.abs(endX - startX);
+    const radiusY = Math.abs(endY - startY);
+    const radius = Math.max(radiusX, radiusY);
+    ctx.beginPath();
+    ctx.arc(startX, startY, radius, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (state.mask.tool === "rectangle") {
+    const x = Math.min(startX, endX);
+    const y = Math.min(startY, endY);
+    const width = Math.abs(endX - startX);
+    const height = Math.abs(endY - startY);
+    ctx.fillRect(x, y, width, height);
   }
 }
 
 function updateBrushCursor(event) {
   const brushCursor = document.querySelector("#brush-cursor");
   if (!brushCursor || !state.mask.isEditing) return;
+
+  // Hide cursor for shape tools
+  if (state.mask.tool === "circle" || state.mask.tool === "rectangle") {
+    brushCursor.style.display = "none";
+    return;
+  }
 
   const inputCanvas = document.querySelector("#input-canvas");
   const maskCanvas = state.mask.canvas;
@@ -251,8 +364,8 @@ function hideBrushCursor() {
 function drawOnMask(event) {
   if (!state.mask.isDrawing || !state.mask.isEditing) return;
 
+  const tool = state.mask.tool;
   const maskCanvas = state.mask.canvas;
-  const ctx = state.mask.ctx;
   const canvasRect = maskCanvas.getBoundingClientRect();
 
   // Calculate scale between displayed size and internal resolution
@@ -263,14 +376,62 @@ function drawOnMask(event) {
   const x = (event.clientX - canvasRect.left) * scaleX;
   const y = (event.clientY - canvasRect.top) * scaleY;
 
-  // Brush size is already in source pixels, no need to scale
-  const brushRadius = state.mask.brushSize / 2;
+  if (tool === "brush" || tool === "eraser") {
+    // Brush/eraser drawing
+    const ctx = state.mask.ctx;
+    const brushRadius = state.mask.brushSize / 2;
+    ctx.beginPath();
+    ctx.arc(x, y, brushRadius, 0, Math.PI * 2);
+    ctx.fillStyle = tool === "brush" ? "#000000" : "#FFFFFF";
+    ctx.fill();
+  } else if ((tool === "circle" || tool === "rectangle") && state.mask.shapeStart && state.mask.previewCanvas) {
+    // Shape preview drawing
+    drawShapePreview(event);
+  }
+}
 
-  // Draw circle
-  ctx.beginPath();
-  ctx.arc(x, y, brushRadius, 0, Math.PI * 2);
-  ctx.fillStyle = state.mask.tool === "brush" ? "#000000" : "#FFFFFF";
-  ctx.fill();
+function drawShapePreview(event) {
+  const preview = state.mask.previewCanvas;
+  if (!preview) return;
+
+  const ctx = preview.getContext("2d");
+  const maskCanvas = state.mask.canvas;
+  const canvasRect = maskCanvas.getBoundingClientRect();
+  const scaleX = maskCanvas.width / canvasRect.width;
+  const scaleY = maskCanvas.height / canvasRect.height;
+
+  const startX = state.mask.shapeStart.x;
+  const startY = state.mask.shapeStart.y;
+  const endX = (event.clientX - canvasRect.left) * scaleX;
+  const endY = (event.clientY - canvasRect.top) * scaleY;
+
+  // Clear preview
+  ctx.clearRect(0, 0, preview.width, preview.height);
+
+  // Determine fill color based on Shift key
+  const fillColor = event.shiftKey ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.5)";
+  const strokeColor = event.shiftKey ? "#FFFFFF" : "#000000";
+
+  ctx.fillStyle = fillColor;
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth = 2;
+
+  if (state.mask.tool === "circle") {
+    const radiusX = Math.abs(endX - startX);
+    const radiusY = Math.abs(endY - startY);
+    const radius = Math.max(radiusX, radiusY);
+    ctx.beginPath();
+    ctx.arc(startX, startY, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  } else if (state.mask.tool === "rectangle") {
+    const rectX = Math.min(startX, endX);
+    const rectY = Math.min(startY, endY);
+    const width = Math.abs(endX - startX);
+    const height = Math.abs(endY - startY);
+    ctx.fillRect(rectX, rectY, width, height);
+    ctx.strokeRect(rectX, rectY, width, height);
+  }
 }
 
 function toggleMaskEditing(enabled) {
@@ -300,6 +461,8 @@ function setMaskTool(tool) {
   state.mask.tool = tool;
   document.querySelector("#mask-brush")?.classList.toggle("is-active", tool === "brush");
   document.querySelector("#mask-eraser")?.classList.toggle("is-active", tool === "eraser");
+  document.querySelector("#mask-circle")?.classList.toggle("is-active", tool === "circle");
+  document.querySelector("#mask-rectangle")?.classList.toggle("is-active", tool === "rectangle");
 }
 
 function clearMask(color) {
@@ -1673,6 +1836,12 @@ function bindActions() {
   document.querySelector("#mask-eraser")?.addEventListener("click", () => {
     setMaskTool("eraser");
   });
+  document.querySelector("#mask-circle")?.addEventListener("click", () => {
+    setMaskTool("circle");
+  });
+  document.querySelector("#mask-rectangle")?.addEventListener("click", () => {
+    setMaskTool("rectangle");
+  });
   document.querySelector("#mask-brush-size")?.addEventListener("input", (e) => {
     state.mask.brushSize = Number(e.target.value);
     document.querySelector("#mask-brush-size-value").textContent = e.target.value;
@@ -1696,7 +1865,7 @@ function bindActions() {
     redoMask();
   });
 
-  // Keyboard shortcuts for mask undo/redo
+  // Keyboard shortcuts for mask editing
   document.addEventListener("keydown", (e) => {
     if (state.mask.isEditing) {
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
@@ -1705,6 +1874,11 @@ function bindActions() {
       } else if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
         e.preventDefault();
         redoMask();
+      } else if (e.key === "x" || e.key === "X") {
+        // Toggle between brush and eraser
+        e.preventDefault();
+        const newTool = state.mask.tool === "brush" ? "eraser" : "brush";
+        setMaskTool(newTool);
       }
     }
   });
