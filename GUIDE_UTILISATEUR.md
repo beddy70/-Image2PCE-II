@@ -6,10 +6,11 @@
 
 Image2PCE II est un outil de conversion d'images pour la console PC-Engine / TurboGrafx-16. Il transforme n'importe quelle image en données graphiques compatibles avec les contraintes matérielles de la console :
 
-- Résolution : **256×256 pixels**
+- Résolution : **Variable** (32 à 128 tuiles en largeur, 32 à 64 tuiles en hauteur)
 - Couleurs : **RGB333** (512 couleurs possibles)
 - Palettes : **16 palettes** de 16 couleurs chacune
 - Tuiles : **8×8 pixels** avec déduplication automatique
+- Calcul VRAM : **Affichage en temps réel** de l'occupation mémoire (BAT + tuiles)
 
 ---
 
@@ -21,7 +22,7 @@ Image2PCE II est un outil de conversion d'images pour la console PC-Engine / Tur
 |--------|-------------|
 | **Open image** | Ouvrir une image source (PNG, JPEG, GIF, WebP, BMP) |
 | **Save as image** | Sauvegarder l'aperçu converti en PNG |
-| **Save binaries** | Exporter les fichiers `.bat`, `.tile`, `.pal` |
+| **Save binaries** | Crée un répertoire et exporte `.bat`, `.tiles`, `.pal` |
 | **Save .asm** | Exporter en format assembleur commenté |
 | **VRAM** | Adresse de base VRAM pour les tuiles (défaut: `$4000`) |
 
@@ -53,6 +54,13 @@ Définit le nombre de palettes générées (1 à 16). Plus il y a de palettes, p
 #### Couleur de fond
 Couleur utilisée pour remplir les zones vides (si le ratio est préservé).
 
+#### Taille de sortie
+Deux curseurs permettent de définir la taille de l'image convertie :
+- **Largeur** : 32 à 128 tuiles (256 à 1024 pixels)
+- **Hauteur** : 32 à 64 tuiles (256 à 512 pixels)
+
+La valeur affichée indique le nombre de tuiles et l'équivalent en pixels (ex: `32 (256 px)`).
+
 ---
 
 ## Courbe RGB333
@@ -79,6 +87,9 @@ Affiche l'image originale chargée.
 Affiche le résultat de la conversion en temps réel.
 - **Survol** : Passez la souris sur une tuile pour voir sa palette associée
 - **Zoom tuile** : Un aperçu 10x de la tuile survolée s'affiche
+- **Calcul VRAM** : L'occupation mémoire est affichée (BAT + tuiles uniques)
+  - Si la taille dépasse **64 Ko**, un avertissement en rouge s'affiche
+  - La déduplication des tuiles permet d'économiser de la VRAM
 
 #### Simulation CRT
 Simulez l'affichage sur un écran cathodique :
@@ -91,7 +102,7 @@ Simulez l'affichage sur un écran cathodique :
 | **Shadow Mask** | Motif de points RGB (TV classique) |
 | **Composite** | Combinaison complète avec vignettage |
 
-Le curseur **Flou** ajuste l'intensité du flou analogique (0 à 100%).
+Un léger flou analogique est automatiquement appliqué lorsqu'un mode CRT est sélectionné.
 
 ---
 
@@ -119,13 +130,17 @@ Après conversion, les 16 palettes sont affichées avec leur utilisation :
 
 ## Formats d'export
 
-### Binaires (`.bat`, `.tile`, `.pal`)
+### Binaires (répertoire avec `.bat`, `.tiles`, `.pal`)
+
+L'export binaire crée un **répertoire** portant le nom choisi, contenant 3 fichiers :
 
 | Fichier | Contenu | Taille |
 |---------|---------|--------|
-| `.bat` | Block Address Table (mots 16 bits, little-endian) | 2048 octets |
-| `.tile` | Données des tuiles (format planaire PCE) | Variable |
+| `.bat` | Block Address Table (mots 16 bits, little-endian) | Variable (2 × nb tuiles) |
+| `.tiles` | Données des tuiles (format planaire PCE) | Variable (32 × nb tuiles uniques) |
 | `.pal` | 16 palettes × 16 couleurs × 2 octets | 512 octets |
+
+**Important** : Le fichier `.tiles` commence toujours par une **tuile vide** (32 octets à zéro) en position 0. Les tuiles vides de l'image pointent toutes vers cette première tuile, ce qui permet d'économiser de la VRAM.
 
 ### Assembleur (`.asm`)
 
