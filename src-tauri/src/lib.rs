@@ -983,6 +983,18 @@ fn apply_tile_palettes_with_dither(
             let mut error_g: [[f32; 10]; 9] = [[0.0; 10]; 9];
             let mut error_b: [[f32; 10]; 9] = [[0.0; 10]; 9];
 
+            // Bayer 8x8 matrix for ordered dithering (values 0-63, will be normalized)
+            const BAYER_8X8: [[u8; 8]; 8] = [
+                [ 0, 32,  8, 40,  2, 34, 10, 42],
+                [48, 16, 56, 24, 50, 18, 58, 26],
+                [12, 44,  4, 36, 14, 46,  6, 38],
+                [60, 28, 52, 20, 62, 30, 54, 22],
+                [ 3, 35, 11, 43,  1, 33,  9, 41],
+                [51, 19, 59, 27, 49, 17, 57, 25],
+                [15, 47,  7, 39, 13, 45,  5, 37],
+                [63, 31, 55, 23, 61, 29, 53, 21],
+            ];
+
             // Process pixels within this tile
             for ly in 0..8u32 {
                 for lx in 0..8u32 {
@@ -1001,6 +1013,15 @@ fn apply_tile_palettes_with_dither(
                             (r as f32 + er).clamp(0.0, 255.0),
                             (g as f32 + eg).clamp(0.0, 255.0),
                             (b as f32 + eb).clamp(0.0, 255.0),
+                        )
+                    } else if dither_mode == "ordered" {
+                        // Ordered dithering: add threshold from Bayer matrix
+                        // Threshold is normalized to [-0.5, 0.5] * spread
+                        let threshold = (BAYER_8X8[ly as usize][lx as usize] as f32 / 64.0 - 0.5) * 32.0;
+                        (
+                            (r as f32 + threshold).clamp(0.0, 255.0),
+                            (g as f32 + threshold).clamp(0.0, 255.0),
+                            (b as f32 + threshold).clamp(0.0, 255.0),
                         )
                     } else {
                         (r as f32, g as f32, b as f32)
