@@ -37,6 +37,7 @@ const state = {
     // Shape drawing state
     shapeStart: null, // { x, y } start point for shapes
     previewCanvas: null, // temporary canvas for shape preview
+    shapeFillMode: "black", // "black" (dithering) or "white" (no dithering)
     // Undo/redo history
     history: [],
     historyIndex: -1,
@@ -292,8 +293,10 @@ function finalizeShape(event) {
   const endX = (event.clientX - canvasRect.left) * scaleX;
   const endY = (event.clientY - canvasRect.top) * scaleY;
 
-  // Determine fill color based on Shift key (Shift = erase/white)
-  const fillColor = event.shiftKey ? "#FFFFFF" : "#000000";
+  // Determine fill color based on shapeFillMode (Shift toggles temporarily)
+  const baseIsWhite = state.mask.shapeFillMode === "white";
+  const useWhite = event.shiftKey ? !baseIsWhite : baseIsWhite;
+  const fillColor = useWhite ? "#FFFFFF" : "#000000";
 
   ctx.fillStyle = fillColor;
 
@@ -408,9 +411,11 @@ function drawShapePreview(event) {
   // Clear preview
   ctx.clearRect(0, 0, preview.width, preview.height);
 
-  // Determine fill color based on Shift key
-  const fillColor = event.shiftKey ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.5)";
-  const strokeColor = event.shiftKey ? "#FFFFFF" : "#000000";
+  // Determine fill color based on shapeFillMode (Shift toggles temporarily)
+  const baseIsWhite = state.mask.shapeFillMode === "white";
+  const useWhite = event.shiftKey ? !baseIsWhite : baseIsWhite;
+  const fillColor = useWhite ? "rgba(255, 255, 255, 0.5)" : "rgba(0, 0, 0, 0.5)";
+  const strokeColor = useWhite ? "#FFFFFF" : "#000000";
 
   ctx.fillStyle = fillColor;
   ctx.strokeStyle = strokeColor;
@@ -463,6 +468,31 @@ function setMaskTool(tool) {
   document.querySelector("#mask-eraser")?.classList.toggle("is-active", tool === "eraser");
   document.querySelector("#mask-circle")?.classList.toggle("is-active", tool === "circle");
   document.querySelector("#mask-rectangle")?.classList.toggle("is-active", tool === "rectangle");
+
+  // Add crosshair cursor class for shape tools
+  const maskCanvas = document.querySelector("#mask-canvas");
+  if (maskCanvas) {
+    const isShapeTool = tool === "circle" || tool === "rectangle";
+    maskCanvas.classList.toggle("shape-tool", isShapeTool);
+  }
+
+  // Update shape fill mode indicator
+  updateShapeFillModeIndicator();
+}
+
+function toggleShapeFillMode() {
+  state.mask.shapeFillMode = state.mask.shapeFillMode === "black" ? "white" : "black";
+  updateShapeFillModeIndicator();
+}
+
+function updateShapeFillModeIndicator() {
+  const circleBtn = document.querySelector("#mask-circle");
+  const rectBtn = document.querySelector("#mask-rectangle");
+  const isWhite = state.mask.shapeFillMode === "white";
+
+  // Add visual indicator for erase mode
+  circleBtn?.classList.toggle("erase-mode", isWhite);
+  rectBtn?.classList.toggle("erase-mode", isWhite);
 }
 
 function clearMask(color) {
@@ -1839,8 +1869,14 @@ function bindActions() {
   document.querySelector("#mask-circle")?.addEventListener("click", () => {
     setMaskTool("circle");
   });
+  document.querySelector("#mask-circle")?.addEventListener("dblclick", () => {
+    toggleShapeFillMode();
+  });
   document.querySelector("#mask-rectangle")?.addEventListener("click", () => {
     setMaskTool("rectangle");
+  });
+  document.querySelector("#mask-rectangle")?.addEventListener("dblclick", () => {
+    toggleShapeFillMode();
   });
   document.querySelector("#mask-brush-size")?.addEventListener("input", (e) => {
     state.mask.brushSize = Number(e.target.value);

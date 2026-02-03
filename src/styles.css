@@ -362,6 +362,10 @@ input[type="range"] {
   -webkit-user-drag: none;
 }
 
+.mask-canvas.is-editing.shape-tool {
+  cursor: crosshair;
+}
+
 /* Brush cursor preview */
 .brush-cursor {
   position: absolute;
@@ -416,6 +420,16 @@ input[type="range"] {
 
 .btn--icon.is-active {
   background: #4f76ff;
+  border-color: #6a8aff;
+}
+
+.btn--icon.erase-mode {
+  background: linear-gradient(135deg, #3d4654 50%, #ffffff 50%);
+  border-color: #6f7a8c;
+}
+
+.btn--icon.erase-mode.is-active {
+  background: linear-gradient(135deg, #4f76ff 50%, #ffffff 50%);
   border-color: #6a8aff;
 }
 
