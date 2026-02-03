@@ -401,6 +401,23 @@ function setupDrag(target) {
     dragState.y += dy;
     applyZoom(target);
   });
+
+  // Mouse wheel zoom
+  canvas.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const slider = document.querySelector(`#zoom-${target}`);
+    if (!slider) return;
+
+    const currentZoom = Number(slider.value);
+    const delta = event.deltaY > 0 ? -1 : 1;
+    const newZoom = Math.max(1, Math.min(8, currentZoom + delta));
+
+    if (newZoom !== currentZoom) {
+      slider.value = newZoom;
+      applyZoom(target);
+      saveSettings();
+    }
+  }, { passive: false });
 }
 
 function setupTileHover() {
