@@ -140,14 +140,33 @@ Cliquez sur le bouton **crayon** (✏️) sous l'image source pour activer le mo
 |-------|-------------|
 | **Pinceau** (🖌️) | Peint en noir = zones **avec** dithering |
 | **Gomme** (🧽) | Peint en blanc = zones **sans** dithering |
+| **Cercle** (⭕) | Trace un cercle plein (clic = centre, glisser = rayon) |
+| **Rectangle** (⬜) | Trace un rectangle plein (clic = coin, glisser = coin opposé) |
+| **Polygone** (🔷) | Trace un polygone (clic = ajouter point, fermer ou double-clic = terminer) |
+| **Annuler** (↩️) | Annule la dernière action |
+| **Rétablir** (↪️) | Rétablit l'action annulée |
 | **Taille** | Ajuste le diamètre du pinceau (5-100 pixels) |
 | **Effacer** | Remplit tout le masque en blanc (aucun dithering) |
 | **Remplir** | Remplit tout le masque en noir (dithering partout) |
 | **Inverser** | Inverse le masque (noir ↔ blanc) |
 
-### Raccourcis
-- **Shift + glisser** : Déplacer l'image pendant l'édition du masque
-- **Molette** : Zoomer/dézoomer
+### Outils de forme (cercle, rectangle, polygone)
+- Par défaut, les formes remplissent en **noir** (dithering)
+- **Double-clic** sur le bouton : bascule en mode **blanc** (pas de dithering)
+- Un indicateur visuel (fond bicolore) montre le mode actif
+- **Shift** pendant le tracé : inverse temporairement la couleur
+
+### Raccourcis clavier
+
+| Touche | Action |
+|--------|--------|
+| **X** | Basculer entre pinceau et gomme |
+| **Ctrl+Z** | Annuler |
+| **Ctrl+Y** | Rétablir |
+| **Escape** | Annuler le polygone en cours |
+| **Clic droit** | Annuler le polygone en cours |
+| **Shift + glisser** | Déplacer l'image pendant l'édition |
+| **Molette** | Zoomer/dézoomer |
 
 ### Fonctionnement
 - **Noir** = le dithering sera appliqué dans cette zone
