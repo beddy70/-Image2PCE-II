@@ -64,8 +64,9 @@ async function openImage() {
   const fileUrl = convertFileSrc(selected);
   inputCanvas.innerHTML = `
     <div class="viewer__stage">
-      <img src="${fileUrl}" alt="source" class="viewer__image" id="source-image" />
+      <img src="${fileUrl}" alt="source" class="viewer__image" id="source-image" draggable="false" />
       <canvas id="mask-canvas" class="mask-canvas"></canvas>
+      <div id="brush-cursor" class="brush-cursor"></div>
     </div>
     <div class="viewer__path">${selected}</div>
   `;
@@ -103,23 +104,36 @@ function setupMaskDrawing() {
   const maskCanvas = state.mask.canvas;
   if (!maskCanvas) return;
 
+  const inputCanvas = document.querySelector("#input-canvas");
+
   // Drawing on mask canvas
   maskCanvas.addEventListener("mousedown", startMaskDraw);
-  maskCanvas.addEventListener("mousemove", drawOnMask);
+  maskCanvas.addEventListener("mousemove", (e) => {
+    updateBrushCursor(e);
+    drawOnMask(e);
+  });
   maskCanvas.addEventListener("mouseup", stopMaskDraw);
-  maskCanvas.addEventListener("mouseleave", stopMaskDraw);
+  maskCanvas.addEventListener("mouseleave", () => {
+    stopMaskDraw();
+    hideBrushCursor();
+  });
+  maskCanvas.addEventListener("mouseenter", () => {
+    if (state.mask.isEditing) {
+      showBrushCursor();
+    }
+  });
 
-  // Prevent native drag & drop when mask editing is active
+  // Prevent native drag & drop
   maskCanvas.addEventListener("dragstart", (e) => e.preventDefault());
 
-  // Also prevent drag on the source image when mask editing
-  const sourceImage = document.querySelector("#source-image");
-  if (sourceImage) {
-    sourceImage.addEventListener("dragstart", (e) => {
+  // Also track mouse on the whole input canvas for brush cursor
+  if (inputCanvas) {
+    inputCanvas.addEventListener("mousemove", (e) => {
       if (state.mask.isEditing) {
-        e.preventDefault();
+        updateBrushCursor(e);
       }
     });
+    inputCanvas.addEventListener("mouseleave", hideBrushCursor);
   }
 }
 
@@ -132,6 +146,45 @@ function startMaskDraw(event) {
 
 function stopMaskDraw() {
   state.mask.isDrawing = false;
+}
+
+function updateBrushCursor(event) {
+  const brushCursor = document.querySelector("#brush-cursor");
+  if (!brushCursor || !state.mask.isEditing) return;
+
+  const inputCanvas = document.querySelector("#input-canvas");
+  const rect = inputCanvas.getBoundingClientRect();
+
+  // Get zoom level
+  const zoomSlider = document.querySelector("#zoom-input");
+  const zoom = zoomSlider ? Number(zoomSlider.value) : 1;
+
+  // Size of brush cursor in screen pixels
+  const size = state.mask.brushSize * zoom;
+
+  // Position relative to input canvas
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  brushCursor.style.width = `${size}px`;
+  brushCursor.style.height = `${size}px`;
+  brushCursor.style.left = `${x - size / 2}px`;
+  brushCursor.style.top = `${y - size / 2}px`;
+  brushCursor.style.display = "block";
+}
+
+function showBrushCursor() {
+  const brushCursor = document.querySelector("#brush-cursor");
+  if (brushCursor) {
+    brushCursor.style.display = "block";
+  }
+}
+
+function hideBrushCursor() {
+  const brushCursor = document.querySelector("#brush-cursor");
+  if (brushCursor) {
+    brushCursor.style.display = "none";
+  }
 }
 
 function drawOnMask(event) {
@@ -176,6 +229,11 @@ function toggleMaskEditing(enabled) {
   }
   if (toggleBtn) {
     toggleBtn.classList.toggle("is-active", enabled);
+  }
+
+  // Hide brush cursor when disabling editing
+  if (!enabled) {
+    hideBrushCursor();
   }
 }
 
