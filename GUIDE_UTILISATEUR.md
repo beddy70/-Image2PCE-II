@@ -14,6 +14,26 @@ Image2PCE II est un outil de conversion d'images pour la console PC-Engine / Tur
 
 ---
 
+## Table des matières
+
+1. [Interface](#interface)
+   - [Barre supérieure](#barre-supérieure)
+   - [Panneau des réglages](#panneau-des-réglages)
+2. [Courbe RGB333](#courbe-rgb333)
+3. [Visualiseurs](#visualiseurs)
+   - [Source (gauche)](#source-gauche)
+   - [Sortie (droite)](#sortie-droite)
+4. [Palettes générées](#palettes-générées)
+5. [Workflow recommandé](#workflow-recommandé)
+6. [Formats d'export](#formats-dexport)
+   - [Binaires](#binaires-répertoire-avec-bat-tiles-pal)
+   - [Assembleur](#assembleur-asm)
+7. [Format technique PC-Engine](#format-technique-pc-engine)
+8. [Raccourcis et astuces](#raccourcis-et-astuces)
+9. [Dépannage](#dépannage)
+
+---
+
 ## Interface
 
 ### Barre supérieure
