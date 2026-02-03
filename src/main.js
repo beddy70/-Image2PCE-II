@@ -195,10 +195,25 @@ function setupMaskDrawing() {
   // Prevent native drag & drop
   maskCanvas.addEventListener("dragstart", (e) => e.preventDefault());
 
+  // Right-click cancels polygon
+  maskCanvas.addEventListener("contextmenu", (e) => {
+    if (state.mask.tool === "polygon" && state.mask.polygonPoints.length > 0) {
+      e.preventDefault();
+      cancelPolygon();
+    }
+  });
+
   // Document-level mouseup for shape tools (when releasing outside canvas)
   document.addEventListener("mouseup", (e) => {
     if (state.mask.isDrawing && (state.mask.tool === "circle" || state.mask.tool === "rectangle")) {
       stopMaskDraw(e);
+    }
+  });
+
+  // Escape key cancels polygon
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.mask.tool === "polygon" && state.mask.polygonPoints.length > 0) {
+      cancelPolygon();
     }
   });
 
