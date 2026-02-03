@@ -23,14 +23,15 @@ Image2PCE II est un outil de conversion d'images pour la console PC-Engine / Tur
 3. [Visualiseurs](#visualiseurs)
    - [Source (gauche)](#source-gauche)
    - [Sortie (droite)](#sortie-droite)
-4. [Palettes générées](#palettes-générées)
-5. [Workflow recommandé](#workflow-recommandé)
-6. [Formats d'export](#formats-dexport)
+4. [Masque de dithering](#masque-de-dithering)
+5. [Palettes générées](#palettes-générées)
+6. [Workflow recommandé](#workflow-recommandé)
+7. [Formats d'export](#formats-dexport)
    - [Binaires](#binaires-répertoire-avec-bat-tiles-pal)
    - [Assembleur](#assembleur-asm)
-7. [Format technique PC-Engine](#format-technique-pc-engine)
-8. [Raccourcis et astuces](#raccourcis-et-astuces)
-9. [Dépannage](#dépannage)
+8. [Format technique PC-Engine](#format-technique-pc-engine)
+9. [Raccourcis et astuces](#raccourcis-et-astuces)
+10. [Dépannage](#dépannage)
 
 ---
 
@@ -100,7 +101,7 @@ L'éditeur de courbe permet d'ajuster la quantification des couleurs vers RGB333
 
 ### Source (gauche)
 Affiche l'image originale chargée.
-- **Zoom** : Utilisez le curseur pour agrandir (1x à 8x)
+- **Zoom** : Utilisez le curseur ou la **molette de la souris** pour agrandir (1x à 8x)
 - **Navigation** : Cliquez et glissez pour déplacer l'image
 
 ### Sortie (droite)
@@ -123,6 +124,36 @@ Simulez l'affichage sur un écran cathodique :
 | **Composite** | Combinaison complète avec vignettage |
 
 Un léger flou analogique est automatiquement appliqué lorsqu'un mode CRT est sélectionné.
+
+---
+
+## Masque de dithering
+
+Le masque de dithering permet de contrôler précisément où le tramage est appliqué sur l'image. Activez-le avec la checkbox **Masque dithering** dans les réglages.
+
+### Activer l'édition
+Cliquez sur le bouton **crayon** (✏️) sous l'image source pour activer le mode édition. Le masque apparaît en semi-transparence sur l'image.
+
+### Outils disponibles
+
+| Outil | Description |
+|-------|-------------|
+| **Pinceau** (🖌️) | Peint en noir = zones **avec** dithering |
+| **Gomme** (🧽) | Peint en blanc = zones **sans** dithering |
+| **Taille** | Ajuste le diamètre du pinceau (5-100 pixels) |
+| **Effacer** | Remplit tout le masque en blanc (aucun dithering) |
+| **Remplir** | Remplit tout le masque en noir (dithering partout) |
+| **Inverser** | Inverse le masque (noir ↔ blanc) |
+
+### Raccourcis
+- **Shift + glisser** : Déplacer l'image pendant l'édition du masque
+- **Molette** : Zoomer/dézoomer
+
+### Fonctionnement
+- **Noir** = le dithering sera appliqué dans cette zone
+- **Blanc** = pas de dithering, couleurs unies
+
+Le masque est automatiquement redimensionné pour correspondre à l'image de sortie, y compris si l'option "Keep ratio" est activée.
 
 ---
 
@@ -200,6 +231,12 @@ Octets 24-31 : Plan 3, lignes 0-7
 
 ## Raccourcis et astuces
 
+### Navigation
+- **Molette souris** : Zoomer/dézoomer sur les visualiseurs
+- **Glisser** : Déplacer l'image dans un visualiseur
+- **Shift + glisser** : Déplacer l'image pendant l'édition du masque
+
+### Général
 - Les réglages sont sauvegardés automatiquement
 - Double-cliquez sur le preview couleur 0 pour ouvrir le sélecteur de couleur
 - L'adresse VRAM accepte les formats `$4000` ou `0x4000`
