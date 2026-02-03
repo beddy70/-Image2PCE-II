@@ -34,6 +34,10 @@ const state = {
     isDrawing: false,
     tool: "brush", // "brush" or "eraser"
     brushSize: 20,
+    // Undo/redo history
+    history: [],
+    historyIndex: -1,
+    maxHistory: 50,
   },
   // Curve editor: 9 control points for RGB333 thresholds (input → output)
   // Default linear mapping: input 0,32,64,96,128,160,192,224,255 → output 0,32,64,96,128,160,192,224,255
@@ -57,6 +61,9 @@ async function openImage() {
     return;
   }
 
+  // Close mask editor if open
+  toggleMaskEditing(false);
+
   state.inputImage = selected;
   const inputMeta = document.querySelector("#input-meta");
   inputMeta.textContent = selected;
@@ -70,7 +77,6 @@ async function openImage() {
       </div>
     </div>
     <div id="brush-cursor" class="brush-cursor"></div>
-    <div class="viewer__path">${selected}</div>
   `;
 
   // Wait for image to load to get dimensions for mask
@@ -98,8 +104,54 @@ function initMaskCanvas(width, height) {
   state.mask.ctx.fillStyle = "#FFFFFF";
   state.mask.ctx.fillRect(0, 0, width, height);
 
+  // Reset history and save initial state
+  state.mask.history = [];
+  state.mask.historyIndex = -1;
+  saveMaskState();
+
   // Setup mask drawing events
   setupMaskDrawing();
+}
+
+function saveMaskState() {
+  const ctx = state.mask.ctx;
+  if (!ctx || !state.mask.width || !state.mask.height) return;
+
+  // Remove any redo states
+  if (state.mask.historyIndex < state.mask.history.length - 1) {
+    state.mask.history = state.mask.history.slice(0, state.mask.historyIndex + 1);
+  }
+
+  // Save current state
+  const imageData = ctx.getImageData(0, 0, state.mask.width, state.mask.height);
+  state.mask.history.push(imageData);
+
+  // Limit history size
+  if (state.mask.history.length > state.mask.maxHistory) {
+    state.mask.history.shift();
+  } else {
+    state.mask.historyIndex++;
+  }
+}
+
+function undoMask() {
+  if (state.mask.historyIndex <= 0) return;
+
+  state.mask.historyIndex--;
+  const imageData = state.mask.history[state.mask.historyIndex];
+  if (imageData && state.mask.ctx) {
+    state.mask.ctx.putImageData(imageData, 0, 0);
+  }
+}
+
+function redoMask() {
+  if (state.mask.historyIndex >= state.mask.history.length - 1) return;
+
+  state.mask.historyIndex++;
+  const imageData = state.mask.history[state.mask.historyIndex];
+  if (imageData && state.mask.ctx) {
+    state.mask.ctx.putImageData(imageData, 0, 0);
+  }
 }
 
 function setupMaskDrawing() {
@@ -147,7 +199,11 @@ function startMaskDraw(event) {
 }
 
 function stopMaskDraw() {
-  state.mask.isDrawing = false;
+  if (state.mask.isDrawing) {
+    state.mask.isDrawing = false;
+    // Save state after drawing stroke is complete
+    saveMaskState();
+  }
 }
 
 function updateBrushCursor(event) {
@@ -207,8 +263,8 @@ function drawOnMask(event) {
   const x = (event.clientX - canvasRect.left) * scaleX;
   const y = (event.clientY - canvasRect.top) * scaleY;
 
-  // Brush size in internal canvas coordinates
-  const brushRadius = (state.mask.brushSize / 2) * scaleX;
+  // Brush size is already in source pixels, no need to scale
+  const brushRadius = state.mask.brushSize / 2;
 
   // Draw circle
   ctx.beginPath();
@@ -1623,12 +1679,34 @@ function bindActions() {
   });
   document.querySelector("#mask-clear-white")?.addEventListener("click", () => {
     clearMask("#FFFFFF");
+    saveMaskState();
   });
   document.querySelector("#mask-fill-black")?.addEventListener("click", () => {
     clearMask("#000000");
+    saveMaskState();
   });
   document.querySelector("#mask-invert")?.addEventListener("click", () => {
     invertMask();
+    saveMaskState();
+  });
+  document.querySelector("#mask-undo")?.addEventListener("click", () => {
+    undoMask();
+  });
+  document.querySelector("#mask-redo")?.addEventListener("click", () => {
+    redoMask();
+  });
+
+  // Keyboard shortcuts for mask undo/redo
+  document.addEventListener("keydown", (e) => {
+    if (state.mask.isEditing) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undoMask();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redoMask();
+      }
+    }
   });
 
   // CRT mode change
