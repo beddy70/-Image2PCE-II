@@ -37,19 +37,64 @@ struct ConversionResult {
 }
 
 /// Resize mask from source dimensions to target dimensions using nearest neighbor
-fn resize_mask(mask: &[u8], src_width: u32, src_height: u32, dst_width: u32, dst_height: u32) -> Vec<u8> {
+/// When keep_ratio is true, applies the same transformation as the image (resize + center)
+fn resize_mask(mask: &[u8], src_width: u32, src_height: u32, dst_width: u32, dst_height: u32, keep_ratio: bool) -> Vec<u8> {
+    // Start with white (no dithering) background
     let mut result = vec![255u8; (dst_width * dst_height) as usize];
 
-    for y in 0..dst_height {
-        for x in 0..dst_width {
-            // Map destination coords to source coords
-            let src_x = (x as f32 * src_width as f32 / dst_width as f32) as u32;
-            let src_y = (y as f32 * src_height as f32 / dst_height as f32) as u32;
-            let src_idx = (src_y * src_width + src_x) as usize;
-            let dst_idx = (y * dst_width + x) as usize;
+    if !keep_ratio {
+        // Simple stretch to fill
+        for y in 0..dst_height {
+            for x in 0..dst_width {
+                let src_x = (x as f32 * src_width as f32 / dst_width as f32) as u32;
+                let src_y = (y as f32 * src_height as f32 / dst_height as f32) as u32;
+                let src_idx = (src_y * src_width + src_x) as usize;
+                let dst_idx = (y * dst_width + x) as usize;
 
-            if src_idx < mask.len() {
-                result[dst_idx] = mask[src_idx];
+                if src_idx < mask.len() {
+                    result[dst_idx] = mask[src_idx];
+                }
+            }
+        }
+    } else {
+        // Calculate scaled dimensions keeping aspect ratio (same logic as resize_to_target)
+        let src_ratio = src_width as f32 / src_height as f32;
+        let dst_ratio = dst_width as f32 / dst_height as f32;
+
+        let (scaled_width, scaled_height) = if src_ratio > dst_ratio {
+            // Source is wider - fit to width
+            let w = dst_width;
+            let h = (dst_width as f32 / src_ratio).round() as u32;
+            (w, h.min(dst_height))
+        } else {
+            // Source is taller - fit to height
+            let h = dst_height;
+            let w = (dst_height as f32 * src_ratio).round() as u32;
+            (w.min(dst_width), h)
+        };
+
+        // Calculate offsets to center
+        let offset_x = (dst_width - scaled_width) / 2;
+        let offset_y = (dst_height - scaled_height) / 2;
+
+        // Map pixels from destination to source, considering offset and scaling
+        for y in 0..dst_height {
+            for x in 0..dst_width {
+                // Check if this pixel is within the scaled image area
+                if x >= offset_x && x < offset_x + scaled_width && y >= offset_y && y < offset_y + scaled_height {
+                    // Calculate source position
+                    let local_x = x - offset_x;
+                    let local_y = y - offset_y;
+                    let src_x = (local_x as f32 * src_width as f32 / scaled_width as f32) as u32;
+                    let src_y = (local_y as f32 * src_height as f32 / scaled_height as f32) as u32;
+                    let src_idx = (src_y.min(src_height - 1) * src_width + src_x.min(src_width - 1)) as usize;
+                    let dst_idx = (y * dst_width + x) as usize;
+
+                    if src_idx < mask.len() {
+                        result[dst_idx] = mask[src_idx];
+                    }
+                }
+                // Pixels outside the scaled area remain white (no dithering)
             }
         }
     }
@@ -172,8 +217,8 @@ fn run_conversion(
             "none",
         )?;
 
-        // Resize mask to target dimensions
-        let resized_mask = resize_mask(&dither_mask, mask_width, mask_height, target_width, target_height);
+        // Resize mask to target dimensions (using same keep_ratio logic as image)
+        let resized_mask = resize_mask(&dither_mask, mask_width, mask_height, target_width, target_height, keep_ratio);
 
         // Combine based on mask (black = dithered, white = non-dithered)
         combine_with_mask(&dithered, &non_dithered, &resized_mask)
