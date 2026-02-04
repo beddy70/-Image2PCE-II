@@ -872,8 +872,10 @@ async function runConversion() {
     const outputCanvas = document.querySelector("#output-canvas");
     outputCanvas.innerHTML = `
       <div class="viewer__stage">
-        <canvas id="output-image-canvas" class="viewer__image" width="${targetWidth}" height="${targetHeight}"></canvas>
-        <canvas id="tile-lock-overlay" class="tile-lock-overlay" width="${targetWidth}" height="${targetHeight}"></canvas>
+        <div class="viewer__image-wrapper">
+          <canvas id="output-image-canvas" class="viewer__image" width="${targetWidth}" height="${targetHeight}"></canvas>
+          <canvas id="tile-lock-overlay" class="tile-lock-overlay" width="${targetWidth}" height="${targetHeight}"></canvas>
+        </div>
         <div class="tile-highlight" id="tile-highlight"></div>
       </div>
       <canvas class="tile-zoom" id="tile-zoom" width="80" height="80"></canvas>
@@ -894,9 +896,6 @@ async function runConversion() {
 
       // Apply current blur setting
       applyCrtBlur();
-
-      // Setup tile editor drawing events
-      setupTileEditorDrawing();
     };
     img.src = `data:image/png;base64,${previewBase64}`;
 
@@ -1405,10 +1404,17 @@ function drawLockedTileOverlay() {
 
 function updateTileEditorPalette(paletteIndex) {
   const container = document.querySelector("#tile-editor-palette");
+  const paletteNumEl = document.querySelector("#tile-editor-palette-num");
+
   if (!container || paletteIndex === null) return;
 
   const palette = state.palettes[paletteIndex];
   if (!palette) return;
+
+  // Update palette number display
+  if (paletteNumEl) {
+    paletteNumEl.textContent = paletteIndex;
+  }
 
   container.innerHTML = "";
 
@@ -1446,13 +1452,8 @@ function selectTileEditorColor(color, swatch) {
 }
 
 function setupTileEditorDrawing() {
-  const canvas = document.querySelector("#output-image-canvas");
-  if (!canvas) return;
-
-  canvas.addEventListener("mousedown", startTileEditorDraw);
-  canvas.addEventListener("mousemove", drawTileEditorPixel);
-  canvas.addEventListener("mouseup", stopTileEditorDraw);
-  canvas.addEventListener("mouseleave", stopTileEditorDraw);
+  // Events are attached to the container #output-canvas which doesn't change
+  // This is called once during initial setup, not per conversion
 }
 
 function startTileEditorDraw(event) {
@@ -1569,19 +1570,31 @@ function getTileAndPixelFromEvent(event) {
   const img = outputCanvas?.querySelector(".viewer__image");
   if (!img) return { tileIndex: -1 };
 
-  // Same logic as setupTileHover
   const zoomSlider = document.querySelector("#zoom-output");
   const zoom = zoomSlider ? Number(zoomSlider.value) : 1;
 
   const imgRect = img.getBoundingClientRect();
 
-  // Calculate mouse position relative to image
+  // Get actual canvas dimensions (not CSS display size)
+  const actualWidth = img.width;
+  const actualHeight = img.height;
+
+  // Calculate the CSS display size (without zoom)
+  const displayWidth = imgRect.width / zoom;
+  const displayHeight = imgRect.height / zoom;
+
+  // Calculate scale ratio between actual size and CSS display size
+  const scaleX = actualWidth / displayWidth;
+  const scaleY = actualHeight / displayHeight;
+
+  // Calculate mouse position relative to displayed image
   const mouseX = event.clientX - imgRect.left;
   const mouseY = event.clientY - imgRect.top;
 
-  // Convert to image coordinates
-  const pixelX = Math.floor(mouseX / zoom);
-  const pixelY = Math.floor(mouseY / zoom);
+  // Convert to actual image pixel coordinates
+  // First divide by zoom to get CSS coordinates, then multiply by scale ratio
+  const pixelX = Math.floor((mouseX / zoom) * scaleX);
+  const pixelY = Math.floor((mouseY / zoom) * scaleY);
 
   // Get output dimensions from state
   const outputWidth = state.outputWidth || 256;
@@ -1631,10 +1644,10 @@ function saveTileEditorState() {
 }
 
 function undoTileEditor() {
-  if (state.tileEditor.historyIndex <= 0) return;
+  if (state.tileEditor.historyIndex < 0 || state.tileEditor.history.length === 0) return;
 
-  state.tileEditor.historyIndex--;
   const imageData = state.tileEditor.history[state.tileEditor.historyIndex];
+  state.tileEditor.historyIndex--;
   if (imageData) {
     // Copy to originalImageData
     state.originalImageData = new ImageData(
@@ -1687,10 +1700,14 @@ function resetTileEditorState() {
   toggleTileEditing(false);
   setTileEditorTool("brush");
 
-  // Clear the palette picker
+  // Clear the palette picker and number
   const container = document.querySelector("#tile-editor-palette");
   if (container) {
     container.innerHTML = "";
+  }
+  const paletteNumEl = document.querySelector("#tile-editor-palette-num");
+  if (paletteNumEl) {
+    paletteNumEl.textContent = "-";
   }
 }
 
@@ -2557,6 +2574,15 @@ function bindActions() {
     redoTileEditor();
   });
 
+  // Tile editor drawing events - attached to container which doesn't change
+  const outputContainer = document.querySelector("#output-canvas");
+  if (outputContainer) {
+    outputContainer.addEventListener("mousedown", startTileEditorDraw);
+    outputContainer.addEventListener("mousemove", drawTileEditorPixel);
+    outputContainer.addEventListener("mouseup", stopTileEditorDraw);
+    outputContainer.addEventListener("mouseleave", stopTileEditorDraw);
+  }
+
   // Keyboard shortcuts for mask editing and tile editing
   document.addEventListener("keydown", (e) => {
     // Tile editor shortcuts (priority over mask editor when active)
@@ -2568,6 +2594,12 @@ function bindActions() {
       } else if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
         e.preventDefault();
         redoTileEditor();
+        return;
+      } else if (e.key === "x" || e.key === "X") {
+        // Toggle between brush and select
+        e.preventDefault();
+        const newTool = state.tileEditor.tool === "brush" ? "select" : "brush";
+        setTileEditorTool(newTool);
         return;
       }
     }

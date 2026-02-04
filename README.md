@@ -186,6 +186,22 @@ cargo tauri dev
 3. **Convertir** : Cliquez sur "Convertir" pour lancer la conversion
 4. **Exporter** : Choisissez le format d'export souhaité
 
+## Raccourcis clavier
+
+### Éditeur de masque (dithering)
+| Raccourci | Action |
+|-----------|--------|
+| `Ctrl/Cmd + Z` | Annuler |
+| `Ctrl/Cmd + Y` ou `Ctrl/Cmd + Shift + Z` | Rétablir |
+| `X` | Basculer entre pinceau et gomme |
+
+### Éditeur de tuiles
+| Raccourci | Action |
+|-----------|--------|
+| `Ctrl/Cmd + Z` | Annuler |
+| `Ctrl/Cmd + Y` ou `Ctrl/Cmd + Shift + Z` | Rétablir |
+| `X` | Basculer entre pinceau et sélection |
+
 ## Format des fichiers exportés
 
 ### Binaires
