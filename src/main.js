@@ -59,6 +59,19 @@ const state = {
     { x: 255, y: 255 },
   ],
   curveSelectedPoint: null,
+  // Tile pixel editor state
+  tileEditor: {
+    isEditing: false,           // Mode édition actif
+    isDrawing: false,           // En train de dessiner
+    tool: "brush",              // "brush" ou "select"
+    selectedColor: null,        // Couleur sélectionnée (hex)
+    activePaletteIndex: null,   // Palette de la tuile en cours d'édition
+    lockedTiles: [],            // Booléens des tuiles verrouillées
+    history: [],                // Historique undo/redo (ImageData)
+    historyIndex: -1,
+    maxHistory: 50,
+    lastPixel: null,            // Évite les dessins redondants
+  },
 };
 
 async function openImage() {
@@ -766,6 +779,9 @@ async function runConversion() {
     return;
   }
 
+  // Reset tile editor state for new conversion
+  resetTileEditorState();
+
   // Clear previous output to ensure progress bar is visible
   const outputCanvas = document.querySelector("#output-canvas");
   outputCanvas.innerHTML = '<p>Conversion en cours...</p>';
@@ -857,6 +873,7 @@ async function runConversion() {
     outputCanvas.innerHTML = `
       <div class="viewer__stage">
         <canvas id="output-image-canvas" class="viewer__image" width="${targetWidth}" height="${targetHeight}"></canvas>
+        <canvas id="tile-lock-overlay" class="tile-lock-overlay" width="${targetWidth}" height="${targetHeight}"></canvas>
         <div class="tile-highlight" id="tile-highlight"></div>
       </div>
       <canvas class="tile-zoom" id="tile-zoom" width="80" height="80"></canvas>
@@ -877,6 +894,9 @@ async function runConversion() {
 
       // Apply current blur setting
       applyCrtBlur();
+
+      // Setup tile editor drawing events
+      setupTileEditorDrawing();
     };
     img.src = `data:image/png;base64,${previewBase64}`;
 
@@ -1053,6 +1073,10 @@ function setupDrag(target) {
     if (target === "input" && state.mask.isEditing && !event.shiftKey) {
       return;
     }
+    // Don't start drag if tile editing is active on output canvas, unless Shift is held
+    if (target === "output" && state.tileEditor.isEditing && !event.shiftKey) {
+      return;
+    }
     event.preventDefault(); // Prevent text selection
     const dragState = state.drag[target];
     dragState.isDragging = true;
@@ -1109,6 +1133,17 @@ function setupTileHover() {
   }
 
   outputCanvas.addEventListener("mousemove", (event) => {
+    // Disable tile hover when tile editor is active
+    if (state.tileEditor.isEditing) {
+      tileHighlight.style.display = "none";
+      if (tileZoom) {
+        tileZoom.style.display = "none";
+      }
+      clearPaletteHighlight();
+      updatePaletteTooltip(null);
+      return;
+    }
+
     if (state.tilePaletteMap.length === 0) {
       return;
     }
@@ -1252,6 +1287,411 @@ function updatePaletteTooltip(paletteIndex, tileX, tileY, isEmpty = false) {
       ${palette.slice(0, 8).map((color) => `<div class="palette-tooltip__swatch" style="background-color:${color}"></div>`).join("")}
     </div>
   `;
+}
+
+// ===== Tile Pixel Editor =====
+
+function toggleTileEditing(enabled) {
+  state.tileEditor.isEditing = enabled;
+  const canvas = document.querySelector("#output-image-canvas");
+  const tools = document.querySelector("#tile-editor-tools");
+  const toggleBtn = document.querySelector("#tile-editor-toggle");
+  const tileHighlight = document.querySelector("#tile-highlight");
+  const tileZoom = document.querySelector("#tile-zoom");
+
+  if (canvas) {
+    canvas.classList.toggle("tile-editing", enabled);
+  }
+  if (tools) {
+    tools.classList.toggle("is-visible", enabled);
+  }
+  if (toggleBtn) {
+    toggleBtn.classList.toggle("is-active", enabled);
+  }
+
+  // Hide/show tile hover elements
+  if (enabled) {
+    // Hide tile hover elements when editing
+    if (tileHighlight) {
+      tileHighlight.style.display = "none";
+    }
+    if (tileZoom) {
+      tileZoom.style.display = "none";
+    }
+    clearPaletteHighlight();
+    updatePaletteTooltip(null);
+  }
+
+  // Clear any locked state when disabling
+  if (!enabled) {
+    unlockAllTiles();
+    state.tileEditor.selectedColor = null;
+    state.tileEditor.activePaletteIndex = null;
+  }
+}
+
+function setTileEditorTool(tool) {
+  state.tileEditor.tool = tool;
+  const canvas = document.querySelector("#output-image-canvas");
+  const brushBtn = document.querySelector("#tile-editor-brush");
+  const selectBtn = document.querySelector("#tile-editor-select");
+
+  // Update button states
+  if (brushBtn) {
+    brushBtn.classList.toggle("is-active", tool === "brush");
+  }
+  if (selectBtn) {
+    selectBtn.classList.toggle("is-active", tool === "select");
+  }
+
+  // Update cursor style
+  if (canvas) {
+    canvas.classList.toggle("tool-select", tool === "select");
+  }
+
+  // Keep the lock state when switching tools - selection defines the work area
+}
+
+function lockTilesExceptPalette(paletteIndex) {
+  const tilesPerRow = state.outputWidth / 8;
+  const totalTiles = (state.outputWidth / 8) * (state.outputHeight / 8);
+
+  state.tileEditor.lockedTiles = new Array(totalTiles).fill(false);
+  state.tileEditor.activePaletteIndex = paletteIndex;
+
+  for (let i = 0; i < totalTiles; i++) {
+    if (state.tilePaletteMap[i] !== paletteIndex) {
+      state.tileEditor.lockedTiles[i] = true;
+    }
+  }
+
+  drawLockedTileOverlay();
+}
+
+function unlockAllTiles() {
+  state.tileEditor.lockedTiles = [];
+  state.tileEditor.activePaletteIndex = null;
+
+  const overlay = document.querySelector("#tile-lock-overlay");
+  if (overlay) {
+    const ctx = overlay.getContext("2d");
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    overlay.classList.remove("is-active");
+  }
+}
+
+function drawLockedTileOverlay() {
+  const overlay = document.querySelector("#tile-lock-overlay");
+  if (!overlay) return;
+
+  const ctx = overlay.getContext("2d");
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  const tilesPerRow = state.outputWidth / 8;
+
+  // Draw semi-transparent overlay on locked tiles
+  ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+
+  state.tileEditor.lockedTiles.forEach((isLocked, index) => {
+    if (isLocked) {
+      const tileX = (index % tilesPerRow) * 8;
+      const tileY = Math.floor(index / tilesPerRow) * 8;
+      ctx.fillRect(tileX, tileY, 8, 8);
+    }
+  });
+
+  overlay.classList.add("is-active");
+}
+
+function updateTileEditorPalette(paletteIndex) {
+  const container = document.querySelector("#tile-editor-palette");
+  if (!container || paletteIndex === null) return;
+
+  const palette = state.palettes[paletteIndex];
+  if (!palette) return;
+
+  container.innerHTML = "";
+
+  palette.forEach((color, index) => {
+    const swatch = document.createElement("div");
+    swatch.className = "tile-editor-swatch";
+    swatch.style.backgroundColor = color;
+    swatch.title = `${color} (index ${index})`;
+    swatch.dataset.colorIndex = index;
+
+    // Select first non-background color by default if no color selected
+    if (index === 1 && !state.tileEditor.selectedColor) {
+      swatch.classList.add("is-selected");
+      state.tileEditor.selectedColor = color;
+    } else if (state.tileEditor.selectedColor &&
+               state.tileEditor.selectedColor.toUpperCase() === color.toUpperCase()) {
+      swatch.classList.add("is-selected");
+    }
+
+    swatch.addEventListener("click", () => selectTileEditorColor(color, swatch));
+    container.appendChild(swatch);
+  });
+}
+
+function selectTileEditorColor(color, swatch) {
+  state.tileEditor.selectedColor = color;
+
+  // Update UI
+  document.querySelectorAll(".tile-editor-swatch").forEach((s) => {
+    s.classList.remove("is-selected");
+  });
+  if (swatch) {
+    swatch.classList.add("is-selected");
+  }
+}
+
+function setupTileEditorDrawing() {
+  const canvas = document.querySelector("#output-image-canvas");
+  if (!canvas) return;
+
+  canvas.addEventListener("mousedown", startTileEditorDraw);
+  canvas.addEventListener("mousemove", drawTileEditorPixel);
+  canvas.addEventListener("mouseup", stopTileEditorDraw);
+  canvas.addEventListener("mouseleave", stopTileEditorDraw);
+}
+
+function startTileEditorDraw(event) {
+  if (!state.tileEditor.isEditing) return;
+
+  const result = getTileAndPixelFromEvent(event);
+  if (result.tileIndex === -1) return;
+
+  // Select tool: lock tiles to this palette and show colors
+  if (state.tileEditor.tool === "select") {
+    // Check if tile is empty - don't allow selecting empty tiles
+    if (state.emptyTiles[result.tileIndex]) return;
+
+    // Lock tiles to this palette
+    lockTilesExceptPalette(result.paletteIndex);
+
+    // Update color picker to show this tile's palette
+    updateTileEditorPalette(result.paletteIndex);
+
+    // Select first non-background color by default
+    if (!state.tileEditor.selectedColor) {
+      const palette = state.palettes[result.paletteIndex];
+      if (palette && palette.length > 1) {
+        state.tileEditor.selectedColor = palette[1];
+        updateTileEditorPalette(result.paletteIndex);
+      }
+    }
+    return;
+  }
+
+  // Brush tool: can only draw if a selection exists
+  if (state.tileEditor.tool === "brush") {
+    // Must have a selection first
+    if (state.tileEditor.activePaletteIndex === null) {
+      return; // No selection made yet, can't draw
+    }
+
+    // Check if this tile is locked (different palette)
+    if (state.tileEditor.lockedTiles[result.tileIndex]) {
+      return; // Can't draw on locked tiles
+    }
+
+    // Check if tile is empty
+    if (state.emptyTiles[result.tileIndex]) return;
+
+    // Save state for undo before starting to draw
+    saveTileEditorState();
+
+    state.tileEditor.isDrawing = true;
+    state.tileEditor.lastPixel = null;
+
+    // Draw the first pixel
+    if (state.tileEditor.selectedColor) {
+      drawPixelAt(result.pixelX, result.pixelY);
+    }
+  }
+}
+
+function drawTileEditorPixel(event) {
+  if (!state.tileEditor.isDrawing || !state.tileEditor.isEditing) return;
+
+  const result = getTileAndPixelFromEvent(event);
+  if (result.tileIndex === -1) return;
+
+  // Check if this tile is locked
+  if (state.tileEditor.lockedTiles[result.tileIndex]) return;
+
+  // Avoid drawing same pixel repeatedly
+  const pixelKey = `${result.pixelX},${result.pixelY}`;
+  if (state.tileEditor.lastPixel === pixelKey) return;
+  state.tileEditor.lastPixel = pixelKey;
+
+  if (state.tileEditor.selectedColor) {
+    drawPixelAt(result.pixelX, result.pixelY);
+  }
+}
+
+function stopTileEditorDraw() {
+  if (state.tileEditor.isDrawing) {
+    state.tileEditor.isDrawing = false;
+    state.tileEditor.lastPixel = null;
+    // Keep tiles locked - selection defines the work area
+  }
+}
+
+function drawPixelAt(x, y) {
+  const canvas = document.querySelector("#output-image-canvas");
+  if (!canvas || !state.originalImageData) return;
+
+  const ctx = canvas.getContext("2d");
+  const color = state.tileEditor.selectedColor;
+
+  // Parse hex color to RGB
+  const r = parseInt(color.slice(1, 3), 16);
+  const g = parseInt(color.slice(3, 5), 16);
+  const b = parseInt(color.slice(5, 7), 16);
+
+  // Update originalImageData
+  const index = (y * state.outputWidth + x) * 4;
+  state.originalImageData.data[index] = r;
+  state.originalImageData.data[index + 1] = g;
+  state.originalImageData.data[index + 2] = b;
+  state.originalImageData.data[index + 3] = 255;
+
+  // Redraw canvas from originalImageData
+  ctx.putImageData(state.originalImageData, 0, 0);
+
+  // Re-apply CRT blur if active
+  applyCrtBlur();
+}
+
+function getTileAndPixelFromEvent(event) {
+  const outputCanvas = document.querySelector("#output-canvas");
+  const img = outputCanvas?.querySelector(".viewer__image");
+  if (!img) return { tileIndex: -1 };
+
+  // Same logic as setupTileHover
+  const zoomSlider = document.querySelector("#zoom-output");
+  const zoom = zoomSlider ? Number(zoomSlider.value) : 1;
+
+  const imgRect = img.getBoundingClientRect();
+
+  // Calculate mouse position relative to image
+  const mouseX = event.clientX - imgRect.left;
+  const mouseY = event.clientY - imgRect.top;
+
+  // Convert to image coordinates
+  const pixelX = Math.floor(mouseX / zoom);
+  const pixelY = Math.floor(mouseY / zoom);
+
+  // Get output dimensions from state
+  const outputWidth = state.outputWidth || 256;
+  const outputHeight = state.outputHeight || 256;
+
+  // Check bounds
+  if (pixelX < 0 || pixelX >= outputWidth ||
+      pixelY < 0 || pixelY >= outputHeight) {
+    return { tileIndex: -1 };
+  }
+
+  // Calculate tile index
+  const tilesPerRow = outputWidth / 8;
+  const tileX = Math.floor(pixelX / 8);
+  const tileY = Math.floor(pixelY / 8);
+  const tileIndex = tileY * tilesPerRow + tileX;
+
+  const paletteIndex = state.tilePaletteMap[tileIndex];
+
+  return { tileIndex, paletteIndex, pixelX, pixelY };
+}
+
+function saveTileEditorState() {
+  if (!state.originalImageData) return;
+
+  // Remove any redo states
+  if (state.tileEditor.historyIndex < state.tileEditor.history.length - 1) {
+    state.tileEditor.history = state.tileEditor.history.slice(
+      0, state.tileEditor.historyIndex + 1
+    );
+  }
+
+  // Save copy of originalImageData
+  const copy = new ImageData(
+    new Uint8ClampedArray(state.originalImageData.data),
+    state.originalImageData.width,
+    state.originalImageData.height
+  );
+  state.tileEditor.history.push(copy);
+
+  // Limit history size
+  if (state.tileEditor.history.length > state.tileEditor.maxHistory) {
+    state.tileEditor.history.shift();
+  } else {
+    state.tileEditor.historyIndex++;
+  }
+}
+
+function undoTileEditor() {
+  if (state.tileEditor.historyIndex <= 0) return;
+
+  state.tileEditor.historyIndex--;
+  const imageData = state.tileEditor.history[state.tileEditor.historyIndex];
+  if (imageData) {
+    // Copy to originalImageData
+    state.originalImageData = new ImageData(
+      new Uint8ClampedArray(imageData.data),
+      imageData.width,
+      imageData.height
+    );
+
+    // Redraw
+    const canvas = document.querySelector("#output-image-canvas");
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      ctx.putImageData(state.originalImageData, 0, 0);
+      applyCrtBlur();
+    }
+  }
+}
+
+function redoTileEditor() {
+  if (state.tileEditor.historyIndex >= state.tileEditor.history.length - 1) return;
+
+  state.tileEditor.historyIndex++;
+  const imageData = state.tileEditor.history[state.tileEditor.historyIndex];
+  if (imageData) {
+    state.originalImageData = new ImageData(
+      new Uint8ClampedArray(imageData.data),
+      imageData.width,
+      imageData.height
+    );
+
+    const canvas = document.querySelector("#output-image-canvas");
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      ctx.putImageData(state.originalImageData, 0, 0);
+      applyCrtBlur();
+    }
+  }
+}
+
+function resetTileEditorState() {
+  state.tileEditor.isEditing = false;
+  state.tileEditor.isDrawing = false;
+  state.tileEditor.tool = "brush";
+  state.tileEditor.history = [];
+  state.tileEditor.historyIndex = -1;
+  state.tileEditor.selectedColor = null;
+  state.tileEditor.activePaletteIndex = null;
+  state.tileEditor.lockedTiles = [];
+  state.tileEditor.lastPixel = null;
+  toggleTileEditing(false);
+  setTileEditorTool("brush");
+
+  // Clear the palette picker
+  const container = document.querySelector("#tile-editor-palette");
+  if (container) {
+    container.innerHTML = "";
+  }
 }
 
 // ===== Curve Editor =====
@@ -2100,8 +2540,39 @@ function bindActions() {
     redoMask();
   });
 
-  // Keyboard shortcuts for mask editing
+  // Tile editor controls
+  document.querySelector("#tile-editor-toggle")?.addEventListener("click", () => {
+    toggleTileEditing(!state.tileEditor.isEditing);
+  });
+  document.querySelector("#tile-editor-brush")?.addEventListener("click", () => {
+    setTileEditorTool("brush");
+  });
+  document.querySelector("#tile-editor-select")?.addEventListener("click", () => {
+    setTileEditorTool("select");
+  });
+  document.querySelector("#tile-editor-undo")?.addEventListener("click", () => {
+    undoTileEditor();
+  });
+  document.querySelector("#tile-editor-redo")?.addEventListener("click", () => {
+    redoTileEditor();
+  });
+
+  // Keyboard shortcuts for mask editing and tile editing
   document.addEventListener("keydown", (e) => {
+    // Tile editor shortcuts (priority over mask editor when active)
+    if (state.tileEditor.isEditing) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undoTileEditor();
+        return;
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redoTileEditor();
+        return;
+      }
+    }
+
+    // Mask editor shortcuts
     if (state.mask.isEditing) {
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
         e.preventDefault();

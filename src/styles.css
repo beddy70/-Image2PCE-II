@@ -885,3 +885,92 @@ input[type="range"] {
   width: auto;
   min-width: 120px;
 }
+
+/* =============================================
+   Tile Editor
+   ============================================= */
+
+/* Tile Editor Toolbar */
+.viewer__toolbar--tile-editor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid #2a3142;
+  margin-top: 8px;
+}
+
+.tile-editor-tools {
+  display: none;
+  align-items: center;
+  gap: 12px;
+}
+
+.tile-editor-tools.is-visible {
+  display: flex;
+}
+
+.tile-editor-label {
+  font-size: 12px;
+  color: #aab3c2;
+}
+
+.tile-editor-palette {
+  display: flex;
+  gap: 2px;
+}
+
+.tile-editor-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 2px solid #2a3142;
+  cursor: pointer;
+  transition: transform 0.1s ease, border-color 0.1s ease;
+}
+
+.tile-editor-swatch:hover {
+  transform: scale(1.15);
+  border-color: #6a8aff;
+}
+
+.tile-editor-swatch.is-selected {
+  border-color: #4f76ff;
+  box-shadow: 0 0 0 2px #4f76ff, 0 0 8px rgba(79, 118, 255, 0.5);
+}
+
+.tile-editor-separator {
+  width: 1px;
+  height: 20px;
+  background: #2a3142;
+  margin: 0 4px;
+}
+
+/* Overlay tuiles verrouillées */
+.tile-lock-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  image-rendering: pixelated;
+}
+
+.tile-lock-overlay.is-active {
+  opacity: 1;
+}
+
+/* Curseur mode édition */
+#output-image-canvas.tile-editing {
+  cursor: crosshair;
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
+#output-image-canvas.tile-editing.tool-select {
+  cursor: pointer;
+}
