@@ -1918,9 +1918,6 @@ function convertTileToPalette(targetPaletteIndex) {
 
 // ===== Histogram =====
 
-// RGB333 levels: 8 possible values per component (0-7)
-const RGB333_LEVELS = [0, 36, 73, 109, 146, 182, 219, 255];
-
 function drawHistogram() {
   const canvas = document.querySelector("#histogram-canvas");
   if (!canvas || !state.originalImageData) return;
@@ -1942,17 +1939,22 @@ function drawHistogram() {
   ctx.fillRect(0, 0, width, height);
 
   // Calculate histogram with 8 bins (RGB333 levels)
+  // Also accumulate RGB values to compute average color per bin
   const bins = new Array(8).fill(0);
+  const colorSums = Array.from({ length: 8 }, () => ({ r: 0, g: 0, b: 0 }));
   const data = state.originalImageData.data;
 
   for (let i = 0; i < data.length; i += 4) {
-    // Calculate luminance and map to RGB333 level (0-7)
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
+    // Calculate luminance and map to RGB333 level (0-7)
     const lum = (r + g + b) / 3;
-    const level = Math.round(lum / 36.43); // 255/7 ≈ 36.43
-    bins[Math.min(level, 7)]++;
+    const level = Math.min(Math.round(lum / 36.43), 7); // 255/7 ≈ 36.43
+    bins[level]++;
+    colorSums[level].r += r;
+    colorSums[level].g += g;
+    colorSums[level].b += b;
   }
 
   // Find max value for normalization (ignore first bin if it dominates)
@@ -1960,26 +1962,27 @@ function drawHistogram() {
 
   if (maxVal === 0) return;
 
-  // Color gradient for 8 bars: blue → cyan → green → yellow → orange → red
-  const barColors = [
-    "#4466b4", // 0 - dark blue
-    "#44a4b4", // 1 - cyan
-    "#44b466", // 2 - teal/green
-    "#88b444", // 3 - green
-    "#b4b444", // 4 - yellow-green
-    "#b48844", // 5 - orange
-    "#b46644", // 6 - dark orange
-    "#b44444"  // 7 - red
-  ];
-
-  // Draw 8 bars that touch each other
+  // Draw 8 bars with average color of pixels in each bin
   for (let i = 0; i < 8; i++) {
     const x = (i / 8) * width;
     const nextX = ((i + 1) / 8) * width;
     const barWidth = nextX - x;
     const barHeight = (bins[i] / maxVal) * height;
 
-    ctx.fillStyle = barColors[i];
+    // Calculate average color for this bin
+    let color;
+    if (bins[i] > 0) {
+      const avgR = Math.round(colorSums[i].r / bins[i]);
+      const avgG = Math.round(colorSums[i].g / bins[i]);
+      const avgB = Math.round(colorSums[i].b / bins[i]);
+      color = `rgb(${avgR}, ${avgG}, ${avgB})`;
+    } else {
+      // Fallback gray for empty bins
+      const gray = Math.round((i / 7) * 255);
+      color = `rgb(${gray}, ${gray}, ${gray})`;
+    }
+
+    ctx.fillStyle = color;
     ctx.fillRect(x, height - barHeight, barWidth, barHeight);
   }
 }
