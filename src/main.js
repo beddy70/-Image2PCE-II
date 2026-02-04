@@ -1966,8 +1966,6 @@ function drawHistogram() {
 
   if (maxVal === 0) return;
 
-  const barWidth = Math.ceil(width / 256) + 1;
-
   // Color gradient: blue → cyan → green → yellow → orange → red
   function getBarColor(index) {
     const t = index / 255;
@@ -1998,9 +1996,11 @@ function drawHistogram() {
     return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
   }
 
-  // Draw bars with gradient colors
+  // Draw bars with gradient colors - rectangles that touch each other
   for (let i = 0; i < 256; i++) {
-    const x = Math.floor((i / 256) * width);
+    const x = (i / 256) * width;
+    const nextX = ((i + 1) / 256) * width;
+    const barWidth = nextX - x;
     const barHeight = (luminance[i] / maxVal) * height;
 
     ctx.fillStyle = getBarColor(i);
