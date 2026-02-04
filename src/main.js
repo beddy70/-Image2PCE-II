@@ -1918,20 +1918,8 @@ function convertTileToPalette(targetPaletteIndex) {
 
 // ===== Histogram =====
 
-function calculateHistogram(imageData) {
-  const histR = new Array(256).fill(0);
-  const histG = new Array(256).fill(0);
-  const histB = new Array(256).fill(0);
-
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    histR[data[i]]++;
-    histG[data[i + 1]]++;
-    histB[data[i + 2]]++;
-  }
-
-  return { r: histR, g: histG, b: histB };
-}
+// RGB333 levels: 8 possible values per component (0-7)
+const RGB333_LEVELS = [0, 36, 73, 109, 146, 182, 219, 255];
 
 function drawHistogram() {
   const canvas = document.querySelector("#histogram-canvas");
@@ -1953,57 +1941,45 @@ function drawHistogram() {
   ctx.fillStyle = "#0d1016";
   ctx.fillRect(0, 0, width, height);
 
-  const hist = calculateHistogram(state.originalImageData);
+  // Calculate histogram with 8 bins (RGB333 levels)
+  const bins = new Array(8).fill(0);
+  const data = state.originalImageData.data;
 
-  // Combine RGB into luminance histogram
-  const luminance = new Array(256).fill(0);
-  for (let i = 0; i < 256; i++) {
-    luminance[i] = hist.r[i] + hist.g[i] + hist.b[i];
+  for (let i = 0; i < data.length; i += 4) {
+    // Calculate luminance and map to RGB333 level (0-7)
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const lum = (r + g + b) / 3;
+    const level = Math.round(lum / 36.43); // 255/7 ≈ 36.43
+    bins[Math.min(level, 7)]++;
   }
 
-  // Find max value for normalization (ignore extremes 0 and 255)
-  const maxVal = Math.max(...luminance.slice(1, 255));
+  // Find max value for normalization (ignore first bin if it dominates)
+  const maxVal = Math.max(...bins.slice(1), bins[0] * 0.5);
 
   if (maxVal === 0) return;
 
-  // Color gradient: blue → cyan → green → yellow → orange → red
-  function getBarColor(index) {
-    const t = index / 255;
-    let r, g, b;
+  // Color gradient for 8 bars: blue → cyan → green → yellow → orange → red
+  const barColors = [
+    "#4466b4", // 0 - dark blue
+    "#44a4b4", // 1 - cyan
+    "#44b466", // 2 - teal/green
+    "#88b444", // 3 - green
+    "#b4b444", // 4 - yellow-green
+    "#b48844", // 5 - orange
+    "#b46644", // 6 - dark orange
+    "#b44444"  // 7 - red
+  ];
 
-    if (t < 0.2) {
-      // Blue to cyan
-      const s = t / 0.2;
-      r = 66; g = 66 + (180 * s); b = 180;
-    } else if (t < 0.4) {
-      // Cyan to green
-      const s = (t - 0.2) / 0.2;
-      r = 66; g = 180 + (20 * s); b = 180 - (100 * s);
-    } else if (t < 0.6) {
-      // Green to yellow
-      const s = (t - 0.4) / 0.2;
-      r = 66 + (180 * s); g = 200; b = 80 - (30 * s);
-    } else if (t < 0.8) {
-      // Yellow to orange
-      const s = (t - 0.6) / 0.2;
-      r = 246; g = 200 - (70 * s); b = 50;
-    } else {
-      // Orange to red
-      const s = (t - 0.8) / 0.2;
-      r = 246 - (26 * s); g = 130 - (70 * s); b = 50;
-    }
-
-    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
-  }
-
-  // Draw bars with gradient colors - rectangles that touch each other
-  for (let i = 0; i < 256; i++) {
-    const x = (i / 256) * width;
-    const nextX = ((i + 1) / 256) * width;
+  // Draw 8 bars that touch each other
+  for (let i = 0; i < 8; i++) {
+    const x = (i / 8) * width;
+    const nextX = ((i + 1) / 8) * width;
     const barWidth = nextX - x;
-    const barHeight = (luminance[i] / maxVal) * height;
+    const barHeight = (bins[i] / maxVal) * height;
 
-    ctx.fillStyle = getBarColor(i);
+    ctx.fillStyle = barColors[i];
     ctx.fillRect(x, height - barHeight, barWidth, barHeight);
   }
 }
