@@ -226,6 +226,8 @@ Cette fonction permet de changer la palette d'une tuile individuelle :
 4. Les pixels de la tuile sont automatiquement convertis aux couleurs les plus proches de la nouvelle palette
 5. La sélection bascule sur la nouvelle palette
 
+**Note** : Cette opération est annulable avec **Ctrl+Z** / **Cmd+Z** (les pixels et la palette de la tuile sont restaurés).
+
 ### Raccourcis clavier
 
 | Raccourci | Action |
