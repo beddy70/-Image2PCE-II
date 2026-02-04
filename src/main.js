@@ -1964,27 +1964,23 @@ function drawHistogram() {
 
   if (maxVal === 0) return;
 
-  // Draw each channel with transparency (shadows left, highlights right)
+  // Draw each channel as bars (shadows left, highlights right)
   const channels = [
     { data: hist.r, color: "rgba(255, 80, 80, 0.5)" },
     { data: hist.g, color: "rgba(80, 255, 80, 0.5)" },
     { data: hist.b, color: "rgba(80, 80, 255, 0.5)" }
   ];
 
+  const barWidth = width / 256;
+
   for (const channel of channels) {
     ctx.fillStyle = channel.color;
-    ctx.beginPath();
-    ctx.moveTo(0, height);
 
     for (let i = 0; i < 256; i++) {
-      const x = (i / 255) * width;
+      const x = (i / 256) * width;
       const barHeight = (channel.data[i] / maxVal) * height;
-      ctx.lineTo(x, height - barHeight);
+      ctx.fillRect(x, height - barHeight, barWidth + 0.5, barHeight);
     }
-
-    ctx.lineTo(width, height);
-    ctx.closePath();
-    ctx.fill();
   }
 }
 
