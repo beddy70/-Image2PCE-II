@@ -1070,6 +1070,15 @@ input[type="range"] {
   background: #242d3f;
 }
 
+.palette-selector-item.is-current {
+  border-color: #ff9f4f;
+  background: #2d2520;
+}
+
+.palette-selector-item.is-current span {
+  color: #ff9f4f;
+}
+
 .palette-selector-item span {
   font-size: 11px;
   color: #9aa4b2;

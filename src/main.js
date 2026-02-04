@@ -1782,14 +1782,23 @@ function showPaletteSelector() {
   const grid = document.querySelector("#palette-selector-grid");
   if (!modal || !grid) return;
 
+  // Get current palette of the tile
+  const tileIndex = state.tileEditor.contextMenuTileIndex;
+  const currentPaletteIndex = tileIndex !== null ? state.tilePaletteMap[tileIndex] : null;
+
   grid.innerHTML = "";
 
   state.palettes.forEach((palette, index) => {
     const item = document.createElement("div");
     item.className = "palette-selector-item";
 
+    // Highlight current palette
+    if (index === currentPaletteIndex) {
+      item.classList.add("is-current");
+    }
+
     const label = document.createElement("span");
-    label.textContent = `Palette ${index}`;
+    label.textContent = `Palette ${index}${index === currentPaletteIndex ? " (current)" : ""}`;
     item.appendChild(label);
 
     const colorsDiv = document.createElement("div");
