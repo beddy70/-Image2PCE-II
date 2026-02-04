@@ -12,6 +12,7 @@ const state = {
   fixedColor0: "#000000",
   isConverting: false,
   hoveredTile: null,
+  hoveredTileIndex: null,
   // Tile stats for display
   tileStats: {
     total: 0,
@@ -74,6 +75,18 @@ const state = {
     contextMenuTileIndex: null, // Tuile sous le clic droit pour le menu contextuel
   },
 };
+
+// Convert hex color to RGB333 (3 bits per channel, values 0-7)
+function hexToRGB333(hex) {
+  const r8 = parseInt(hex.slice(1, 3), 16);
+  const g8 = parseInt(hex.slice(3, 5), 16);
+  const b8 = parseInt(hex.slice(5, 7), 16);
+  return {
+    r: Math.round(r8 / 255 * 7),
+    g: Math.round(g8 / 255 * 7),
+    b: Math.round(b8 / 255 * 7)
+  };
+}
 
 async function openImage() {
   const selected = await invoke("open_image");
@@ -850,12 +863,14 @@ async function runConversion() {
       empty_tiles: emptyTiles,
       tile_count: tileCount,
       unique_tile_count: uniqueTileCount,
+      tile_to_unique: tileToUnique,
     } = conversionResult;
 
     // Store in state for tile hover feature and export
     state.palettes = palettes;
     state.tilePaletteMap = tilePaletteMap;
     state.emptyTiles = emptyTiles;
+    state.tileToUnique = tileToUnique;
     state.outputImageBase64 = previewBase64;
 
     // Calculate tile stats
@@ -967,7 +982,9 @@ function renderPalettes(palettes, tilePaletteMap = []) {
       const swatch = document.createElement("div");
       swatch.className = "palette-swatch";
       swatch.style.backgroundColor = color;
-      swatch.title = color;
+      // Convert hex to RGB333 for tooltip
+      const rgb333 = hexToRGB333(color);
+      swatch.title = `R:${rgb333.r} G:${rgb333.g} B:${rgb333.b} (${color})`;
       // Mark selected color0
       if (color.toUpperCase() === state.fixedColor0.toUpperCase()) {
         swatch.classList.add("is-selected");
@@ -1218,6 +1235,8 @@ function setupTileHover() {
 
     // Get palette index for this tile
     const paletteIndex = state.tilePaletteMap[tileIndex];
+
+    // Update palette highlight only when palette changes
     if (paletteIndex !== undefined && paletteIndex !== state.hoveredTile) {
       state.hoveredTile = paletteIndex;
       if (!isEmpty) {
@@ -1225,7 +1244,12 @@ function setupTileHover() {
       } else {
         clearPaletteHighlight();
       }
-      updatePaletteTooltip(paletteIndex, tileX, tileY, isEmpty);
+    }
+
+    // Always update tooltip when tile changes (for VRAM address)
+    if (tileIndex !== state.hoveredTileIndex) {
+      state.hoveredTileIndex = tileIndex;
+      updatePaletteTooltip(paletteIndex, tileX, tileY, isEmpty, tileIndex);
     }
   });
 
@@ -1235,8 +1259,9 @@ function setupTileHover() {
       tileZoom.style.display = "none";
     }
     clearPaletteHighlight();
-    updatePaletteTooltip(null);
+    updatePaletteTooltip(null, null, null, false, null);
     state.hoveredTile = null;
+    state.hoveredTileIndex = null;
   });
 }
 
@@ -1261,7 +1286,24 @@ function clearPaletteHighlight() {
   });
 }
 
-function updatePaletteTooltip(paletteIndex, tileX, tileY, isEmpty = false) {
+function getVramBaseAddress() {
+  const input = document.querySelector("#vram-address");
+  if (!input) return 0x4000;
+  const value = input.value.trim();
+  // Parse hex format: $4000 or 0x4000
+  if (value.startsWith("$")) {
+    return parseInt(value.slice(1), 16) || 0x4000;
+  } else if (value.startsWith("0x") || value.startsWith("0X")) {
+    return parseInt(value, 16) || 0x4000;
+  }
+  return parseInt(value, 10) || 0x4000;
+}
+
+function formatVramAddress(address) {
+  return "$" + address.toString(16).toUpperCase().padStart(4, "0");
+}
+
+function updatePaletteTooltip(paletteIndex, tileX, tileY, isEmpty = false, tileIndex = null) {
   const tooltip = document.querySelector("#palette-tooltip");
   if (!tooltip) {
     return;
@@ -1272,9 +1314,18 @@ function updatePaletteTooltip(paletteIndex, tileX, tileY, isEmpty = false) {
     return;
   }
 
+  // Calculate VRAM address for this tile
+  let vramAddressStr = "";
+  if (tileIndex !== null && state.tileToUnique && state.tileToUnique[tileIndex] !== undefined) {
+    const uniqueIndex = state.tileToUnique[tileIndex];
+    const baseAddress = getVramBaseAddress();
+    const vramAddress = baseAddress + (uniqueIndex * 32);
+    vramAddressStr = ` @ ${formatVramAddress(vramAddress)}`;
+  }
+
   // Show empty tile indicator
   if (isEmpty) {
-    tooltip.innerHTML = `<span class="palette-tooltip__label">Tuile (${tileX},${tileY}) — vide</span>`;
+    tooltip.innerHTML = `<span class="palette-tooltip__label">Tuile (${tileX},${tileY}) — vide${vramAddressStr}</span>`;
     return;
   }
 
@@ -1285,7 +1336,7 @@ function updatePaletteTooltip(paletteIndex, tileX, tileY, isEmpty = false) {
 
   // Show mini palette preview in tooltip
   tooltip.innerHTML = `
-    <span class="palette-tooltip__label">Tuile (${tileX},${tileY}) → Palette ${paletteIndex}</span>
+    <span class="palette-tooltip__label">Tuile (${tileX},${tileY}) → Palette ${paletteIndex}${vramAddressStr}</span>
     <div class="palette-tooltip__colors">
       ${palette.slice(0, 8).map((color) => `<div class="palette-tooltip__swatch" style="background-color:${color}"></div>`).join("")}
     </div>
@@ -1426,7 +1477,8 @@ function updateTileEditorPalette(paletteIndex) {
     const swatch = document.createElement("div");
     swatch.className = "tile-editor-swatch";
     swatch.style.backgroundColor = color;
-    swatch.title = `${color} (index ${index})`;
+    const rgb333 = hexToRGB333(color);
+    swatch.title = `R:${rgb333.r} G:${rgb333.g} B:${rgb333.b} (${color}, index ${index})`;
     swatch.dataset.colorIndex = index;
 
     // Select first non-background color by default if no color selected
@@ -1939,9 +1991,14 @@ function drawHistogram() {
   ctx.fillRect(0, 0, width, height);
 
   // Calculate histogram with 8 bins (RGB333 levels)
-  // Track color occurrences to find dominant color per bin
+  // Track min and max colors per bin (by luminance)
   const bins = new Array(8).fill(0);
-  const colorCounts = Array.from({ length: 8 }, () => new Map());
+  const binColors = Array.from({ length: 8 }, () => ({
+    minLum: 256,
+    maxLum: -1,
+    minColor: null,
+    maxColor: null
+  }));
   const data = state.originalImageData.data;
 
   for (let i = 0; i < data.length; i += 4) {
@@ -1953,48 +2010,79 @@ function drawHistogram() {
     const level = Math.min(Math.round(lum / 36.43), 7); // 255/7 ≈ 36.43
     bins[level]++;
 
-    // Track color occurrence (use RGB as key)
-    const colorKey = (r << 16) | (g << 8) | b;
-    const map = colorCounts[level];
-    map.set(colorKey, (map.get(colorKey) || 0) + 1);
+    // Track min and max colors by luminance
+    const binData = binColors[level];
+    if (lum < binData.minLum) {
+      binData.minLum = lum;
+      binData.minColor = { r, g, b };
+    }
+    if (lum > binData.maxLum) {
+      binData.maxLum = lum;
+      binData.maxColor = { r, g, b };
+    }
   }
+
+  // Calculate total pixels for percentage
+  const totalPixels = data.length / 4;
 
   // Find max value for normalization (ignore first bin if it dominates)
   const maxVal = Math.max(...bins.slice(1), bins[0] * 0.5);
 
   if (maxVal === 0) return;
 
-  // Draw 8 bars with dominant color of pixels in each bin
+  // Draw 8 bars with gradient from min to max color
   for (let i = 0; i < 8; i++) {
     const x = (i / 8) * width;
     const nextX = ((i + 1) / 8) * width;
     const barWidth = nextX - x;
     const barHeight = (bins[i] / maxVal) * height;
 
-    // Find dominant color for this bin
-    let color;
-    const map = colorCounts[i];
-    if (map.size > 0) {
-      let maxCount = 0;
-      let dominantColor = 0;
-      for (const [colorKey, count] of map) {
-        if (count > maxCount) {
-          maxCount = count;
-          dominantColor = colorKey;
-        }
-      }
-      const r = (dominantColor >> 16) & 0xFF;
-      const g = (dominantColor >> 8) & 0xFF;
-      const b = dominantColor & 0xFF;
-      color = `rgb(${r}, ${g}, ${b})`;
+    const binData = binColors[i];
+    const barTop = height - barHeight;
+
+    if (binData.minColor && binData.maxColor) {
+      // Create vertical gradient from min (bottom) to max (top)
+      const gradient = ctx.createLinearGradient(0, height, 0, barTop);
+      const minC = binData.minColor;
+      const maxC = binData.maxColor;
+      gradient.addColorStop(0, `rgb(${minC.r}, ${minC.g}, ${minC.b})`);
+      gradient.addColorStop(1, `rgb(${maxC.r}, ${maxC.g}, ${maxC.b})`);
+      ctx.fillStyle = gradient;
     } else {
       // Fallback gray for empty bins
       const gray = Math.round((i / 7) * 255);
-      color = `rgb(${gray}, ${gray}, ${gray})`;
+      ctx.fillStyle = `rgb(${gray}, ${gray}, ${gray})`;
     }
 
-    ctx.fillStyle = color;
-    ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+    ctx.fillRect(x, barTop, barWidth, barHeight);
+  }
+
+  // Draw percentage labels vertically in each bar
+  ctx.font = "bold 13px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  for (let i = 0; i < 8; i++) {
+    const percentage = ((bins[i] / totalPixels) * 100).toFixed(1);
+    if (parseFloat(percentage) === 0) continue;
+
+    const x = (i / 8) * width;
+    const barWidth = width / 8;
+    const barCenterX = x + barWidth / 2;
+
+    // Draw text vertically (rotated -90 degrees)
+    ctx.save();
+    ctx.translate(barCenterX, height - 22);
+    ctx.rotate(-Math.PI / 2);
+
+    // Draw text with outline for visibility (30% transparent)
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
+    ctx.lineWidth = 3;
+    ctx.strokeText(`${percentage}%`, 0, 0);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(`${percentage}%`, 0, 0);
+
+    ctx.restore();
   }
 }
 
@@ -2290,6 +2378,17 @@ async function exportBinaries() {
 
     const vramAddress = getVramAddress();
 
+    // Debug: log data being passed
+    console.info(`DEBUG EXPORT: imageData size: ${imageData.length} bytes`);
+    console.info(`DEBUG EXPORT: palettes: ${state.palettes.length}, tilePaletteMap: ${state.tilePaletteMap.length}, emptyTiles: ${state.emptyTiles.length}`);
+    // Log first palette content
+    if (state.palettes.length > 0) {
+      console.info(`DEBUG EXPORT: Palette 0 has ${state.palettes[0].length} colors: ${state.palettes[0].slice(0, 5).join(', ')}...`);
+    }
+    // Log first few tile palette assignments (non-empty tiles)
+    const nonEmptyIndices = state.tilePaletteMap.slice(0, 20).map((p, i) => state.emptyTiles[i] ? 'E' : p);
+    console.info(`DEBUG EXPORT: First 20 tiles (E=empty): ${nonEmptyIndices.join(', ')}`);
+
     // Call Rust export function to generate binary data
     const result = await invoke("export_binaries", {
       imageData: Array.from(imageData),
@@ -2321,6 +2420,12 @@ async function exportBinaries() {
 
     console.info(`Binaires exportés dans le répertoire`);
     console.info(`${result.unique_tile_count} tuiles uniques (${result.tile_count} total)`);
+    console.info(`DEBUG: Image ${result.image_width}x${result.image_height}, ${result.palette_count} palettes, ${result.empty_tile_count} tuiles vides`);
+    console.info(`DEBUG: Tiles data size: ${result.tiles.length} bytes (expected: ${result.unique_tile_count * 32})`);
+    if (result.debug_info) {
+      console.info("=== RUST DEBUG INFO ===");
+      console.info(result.debug_info);
+    }
   } catch (error) {
     console.error("Erreur d'export binaire:", error);
   }

@@ -10,6 +10,36 @@
 
 ---
 
+## Table des matières
+
+1. [Description](#description)
+2. [Fonctionnalités](#fonctionnalités)
+   - [Conversion d'images](#conversion-dimages)
+   - [Gestion des palettes](#gestion-des-palettes)
+   - [Dithering](#dithering)
+   - [Courbe RGB333](#courbe-rgb333)
+   - [Export](#export)
+   - [Interface](#interface)
+   - [Simulation CRT](#simulation-crt)
+3. [Installation](#installation)
+   - [Prérequis](#prérequis)
+   - [Compilation](#compilation)
+   - [Compilation multi-plateforme](#compilation-multi-plateforme)
+   - [Développement](#développement)
+4. [Utilisation](#utilisation)
+5. [Raccourcis clavier](#raccourcis-clavier)
+6. [Format des fichiers exportés](#format-des-fichiers-exportés)
+   - [Binaires](#binaires)
+   - [Format BAT](#format-bat)
+   - [Format tuile planaire](#format-tuile-planaire)
+   - [Format couleur PCE](#format-couleur-pce)
+7. [Dépannage](#dépannage)
+8. [Technologies](#technologies)
+9. [Licence](#licence)
+10. [Auteur](#auteur)
+
+---
+
 ## Description
 
 Image2PCE II est une application desktop permettant de convertir des images au format graphique de la PC-Engine (TurboGrafx-16). L'application génère automatiquement les données nécessaires pour afficher des images en 256×256 pixels avec les contraintes matérielles de la console :
@@ -235,6 +265,18 @@ Chaque couleur est encodée sur 9 bits (RGB333) dans un mot 16 bits :
       │    └──────── Rouge (3 bits)
       └───────────── Vert (3 bits)
 ```
+
+## Dépannage
+
+### macOS : L'application ne se lance pas
+
+Si l'application refuse de se lancer sur macOS avec un message du type "Image2PCE II est endommagé" ou "impossible de vérifier le développeur", cela est dû à la quarantaine Gatekeeper. Pour résoudre ce problème, exécutez cette commande dans le Terminal :
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Image2PCE\ II.app
+```
+
+> **Note** : Cette commande supprime l'attribut de quarantaine ajouté par macOS lors du téléchargement. Assurez-vous d'avoir téléchargé l'application depuis une source fiable avant d'exécuter cette commande.
 
 ## Technologies
 

@@ -312,10 +312,10 @@ Octets 24-31 : Plan 3, lignes 0-7
 
 ### Couleur PCE (9 bits dans mot 16 bits)
 ```
-0000 0GGG RRRB BB00
-      │    │   └── Bleu (3 bits)
-      │    └────── Rouge (3 bits)
-      └─────────── Vert (3 bits)
+0000 000G GGRR RBBB
+       │   │   └── Bleu (3 bits, positions 0-2)
+       │   └────── Rouge (3 bits, positions 3-5)
+       └────────── Vert (3 bits, positions 6-8)
 ```
 
 ---

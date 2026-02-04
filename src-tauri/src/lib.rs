@@ -34,6 +34,7 @@ struct ConversionResult {
     empty_tiles: Vec<bool>,
     tile_count: usize,
     unique_tile_count: usize,
+    tile_to_unique: Vec<usize>,
 }
 
 /// Resize mask from source dimensions to target dimensions using nearest neighbor
@@ -250,10 +251,12 @@ fn run_conversion(
     // Empty tile is always first (32 bytes of zeros = all pixels are color index 0)
     let empty_tile: [u8; 32] = [0u8; 32];
     let mut unique_tiles: Vec<[u8; 32]> = vec![empty_tile];
+    let mut tile_to_unique: Vec<usize> = Vec::with_capacity(total_tiles);
 
     for tile_idx in 0..total_tiles {
-        // Skip empty tiles - they all use the first unique tile
+        // Empty tiles all point to the first tile (index 0)
         if palette_result.empty_tiles.get(tile_idx).copied().unwrap_or(false) {
+            tile_to_unique.push(0);
             continue;
         }
 
@@ -262,8 +265,15 @@ fn run_conversion(
         let palette_idx = palette_result.tile_palette_map.get(tile_idx).copied().unwrap_or(0);
         let palette = palette_result.palettes.get(palette_idx).cloned().unwrap_or_default();
         let tile_data = encode_tile_planar(&preview, tile_x, tile_y, &palette);
-        if !unique_tiles.iter().any(|t| *t == tile_data) {
-            unique_tiles.push(tile_data);
+
+        // Check for duplicate
+        let existing_idx = unique_tiles.iter().position(|t| *t == tile_data);
+        match existing_idx {
+            Some(idx) => tile_to_unique.push(idx),
+            None => {
+                tile_to_unique.push(unique_tiles.len());
+                unique_tiles.push(tile_data);
+            }
         }
     }
 
@@ -280,6 +290,7 @@ fn run_conversion(
         empty_tiles: palette_result.empty_tiles,
         tile_count: total_tiles,
         unique_tile_count: unique_tiles.len(),
+        tile_to_unique,
     })
 }
 
@@ -1316,8 +1327,8 @@ fn export_plain_text(
     // PALETTES data
     output.push_str("; ----------------------------------------\n");
     output.push_str("; PALETTES - RGB333 format (16 colors x 16 palettes)\n");
-    output.push_str("; Format: -------- -GGGRRR- -------- -BBB----\n");
-    output.push_str("; Stored as: 0x00GR, 0x00B0 per color (little-endian words)\n");
+    output.push_str("; Format: 0000 000G GGRR RBBB (9 bits per color)\n");
+    output.push_str("; G=bits 6-8, R=bits 3-5, B=bits 0-2\n");
     output.push_str("; ----------------------------------------\n");
     output.push_str("PALETTES:\n");
 
@@ -1349,6 +1360,9 @@ fn export_plain_text(
     })
 }
 
+/// Debug flag for encode_tile_planar - only log first tile
+static DEBUG_TILE_LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Encode a single 8x8 tile to PC-Engine planar format (32 bytes)
 /// Format: Planes 1&2 for lines 0-7 (16 bytes), then Planes 3&4 for lines 0-7 (16 bytes)
 fn encode_tile_planar(
@@ -1359,6 +1373,19 @@ fn encode_tile_planar(
 ) -> [u8; 32] {
     let mut data = [0u8; 32];
 
+    // Debug: log first non-empty tile details
+    let should_log = !DEBUG_TILE_LOGGED.swap(true, std::sync::atomic::Ordering::SeqCst);
+    if should_log {
+        eprintln!("DEBUG encode_tile_planar: tile ({},{}) palette has {} colors", tile_x, tile_y, palette.len());
+        for (i, col) in palette.iter().take(4).enumerate() {
+            if let Some(rgba) = parse_hex_color(col) {
+                eprintln!("  palette[{}] = {} -> rgba({},{},{})", i, col, rgba.0[0], rgba.0[1], rgba.0[2]);
+            } else {
+                eprintln!("  palette[{}] = {} -> PARSE FAILED", i, col);
+            }
+        }
+    }
+
     for line in 0..8u32 {
         let mut plane1: u8 = 0;
         let mut plane2: u8 = 0;
@@ -1367,12 +1394,29 @@ fn encode_tile_planar(
 
         for px in 0..8u32 {
             let pixel = img.get_pixel(tile_x * 8 + px, tile_y * 8 + line);
-            let color = format!("#{:02X}{:02X}{:02X}", pixel.0[0], pixel.0[1], pixel.0[2]);
+            let (pr, pg, pb) = (pixel.0[0], pixel.0[1], pixel.0[2]);
 
-            // Find color index in palette (0-15)
-            let color_idx = palette.iter()
-                .position(|c| c.eq_ignore_ascii_case(&color))
-                .unwrap_or(0) as u8;
+            // Find nearest color index in palette (0-15) using RGB distance
+            let mut color_idx: u8 = 0;
+            let mut best_dist = u32::MAX;
+            for (idx, pal_color) in palette.iter().enumerate() {
+                if let Some(pal_rgba) = parse_hex_color(pal_color) {
+                    let dr = pr as i32 - pal_rgba.0[0] as i32;
+                    let dg = pg as i32 - pal_rgba.0[1] as i32;
+                    let db = pb as i32 - pal_rgba.0[2] as i32;
+                    let dist = (dr * dr + dg * dg + db * db) as u32;
+                    if dist < best_dist {
+                        best_dist = dist;
+                        color_idx = idx as u8;
+                    }
+                }
+            }
+
+            // Debug: log first few pixel matchings
+            if should_log && line < 2 && px < 2 {
+                eprintln!("  pixel({},{}) rgb({},{},{}) -> color_idx {} (dist={})",
+                    tile_x * 8 + px, tile_y * 8 + line, pr, pg, pb, color_idx, best_dist);
+            }
 
             // Build planar data (MSB = leftmost pixel)
             let bit_pos = 7 - px as u8;
@@ -1391,13 +1435,16 @@ fn encode_tile_planar(
         data[(16 + line * 2 + 1) as usize] = plane4;
     }
 
+    if should_log {
+        eprintln!("DEBUG: tile data = {:?}", &data[..16]);
+    }
+
     data
 }
 
 /// Convert a hex color (#RRGGBB) to PC-Engine 9-bit RGB333 word
-/// PCE format: -------- -GGG-RRR -------- -BBB----
-/// Stored as single 16-bit word: 0b0000_0GGG_RRRB_BB00 (actually different)
-/// Real format: bits 8-6 = Green, bits 5-3 = Red, bits 2-0 = Blue
+/// PCE format: 0000 000G GGRR RBBB
+/// G=bits 6-8, R=bits 3-5, B=bits 0-2
 fn color_to_pce_word(color: &str) -> u16 {
     let rgba = parse_hex_color(color).unwrap_or(Rgba([0, 0, 0, 255]));
     let r = rgba.0[0];
@@ -1409,8 +1456,8 @@ fn color_to_pce_word(color: &str) -> u16 {
     let g3 = (g >> 5) & 0x07;
     let b3 = (b >> 5) & 0x07;
 
-    // PCE color format: 0000_0GGG_RRRB_BB00 -> stored as 0x0GRB format
-    // Actually: G(3 bits) << 6 | R(3 bits) << 3 | B(3 bits)
+    // PCE color format: 0000 000G GGRR RBBB (9 bits)
+    // G(3 bits) at positions 6-8 | R(3 bits) at positions 3-5 | B(3 bits) at positions 0-2
     ((g3 as u16) << 6) | ((r3 as u16) << 3) | (b3 as u16)
 }
 
@@ -1421,6 +1468,12 @@ struct BinaryExportResult {
     palettes: Vec<u8>,
     tile_count: usize,
     unique_tile_count: usize,
+    // Debug info
+    image_width: u32,
+    image_height: u32,
+    palette_count: usize,
+    empty_tile_count: usize,
+    debug_info: String,
 }
 
 /// Export converted image as binary data (bat.bin, tiles.bin, pal.bin)
@@ -1442,11 +1495,54 @@ fn export_binaries(
     let tiles_y = height / 8;
     let total_tiles = (tiles_x * tiles_y) as usize;
 
+    // Reset debug flag for tile logging
+    DEBUG_TILE_LOGGED.store(false, std::sync::atomic::Ordering::SeqCst);
+
+    // Debug: Log palette contents
+    eprintln!("DEBUG export_binaries: {} palettes received", palettes.len());
+    if !palettes.is_empty() {
+        eprintln!("DEBUG: Palette 0 contents: {:?}", &palettes[0]);
+    }
+
+    // Debug: Log sample pixels from the image and check if they match palette colors
+    if width >= 8 && height >= 8 && !palettes.is_empty() {
+        eprintln!("DEBUG: Sample pixels from tile (0,0) and palette matching:");
+        let pal0 = &palettes[0];
+        for y in 0..2 {
+            for x in 0..2 {
+                let pixel = img.get_pixel(x, y);
+                let pixel_hex = format!("#{:02X}{:02X}{:02X}", pixel.0[0], pixel.0[1], pixel.0[2]);
+                let exact_match = pal0.iter().position(|c| c == &pixel_hex);
+                eprintln!("  pixel({},{}) = {} -> exact match in pal0: {:?}", x, y, pixel_hex, exact_match);
+
+                // Also find nearest with distance
+                let mut best_dist = u32::MAX;
+                let mut best_idx = 0;
+                for (idx, col) in pal0.iter().enumerate() {
+                    if let Some(c) = parse_hex_color(col) {
+                        let dr = pixel.0[0] as i32 - c.0[0] as i32;
+                        let dg = pixel.0[1] as i32 - c.0[1] as i32;
+                        let db = pixel.0[2] as i32 - c.0[2] as i32;
+                        let dist = (dr*dr + dg*dg + db*db) as u32;
+                        if dist < best_dist {
+                            best_dist = dist;
+                            best_idx = idx;
+                        }
+                    }
+                }
+                eprintln!("    nearest: idx {} (dist={})", best_idx, best_dist);
+            }
+        }
+    }
+
     // Build unique tiles and mapping
     // Empty tile is always first (32 bytes of zeros = all pixels are color index 0)
     let empty_tile: [u8; 32] = [0u8; 32];
     let mut unique_tiles: Vec<[u8; 32]> = vec![empty_tile];
     let mut tile_to_unique: Vec<usize> = Vec::with_capacity(total_tiles);
+
+    let mut debug_non_empty_count = 0;
+    let mut debug_new_unique_count = 0;
 
     for tile_idx in 0..total_tiles {
         // Empty tiles all point to the first tile (index 0)
@@ -1455,6 +1551,8 @@ fn export_binaries(
             continue;
         }
 
+        debug_non_empty_count += 1;
+
         let tile_x = (tile_idx % tiles_x as usize) as u32;
         let tile_y = (tile_idx / tiles_x as usize) as u32;
 
@@ -1462,21 +1560,45 @@ fn export_binaries(
         let palette_idx = tile_palette_map.get(tile_idx).copied().unwrap_or(0);
         let palette = palettes.get(palette_idx).cloned().unwrap_or_default();
 
+        // Debug: log first few non-empty tiles
+        if debug_non_empty_count <= 3 {
+            eprintln!("DEBUG: Non-empty tile {} at ({},{}) uses palette index {}", tile_idx, tile_x, tile_y, palette_idx);
+            eprintln!("  palette has {} colors: {:?}", palette.len(), &palette.iter().take(4).collect::<Vec<_>>());
+            if palette.is_empty() {
+                eprintln!("  WARNING: Empty palette! All pixels will map to index 0");
+            }
+        }
+
+        // Sanity check: if palette is empty, something is wrong
+        if palette.is_empty() {
+            eprintln!("ERROR: Tile {} has empty palette (palette_idx={}), palettes.len()={}", tile_idx, palette_idx, palettes.len());
+        }
+
         // Encode tile to planar format
         let tile_data = encode_tile_planar(&img, tile_x, tile_y, &palette);
 
         // Check for duplicate
         let existing_idx = unique_tiles.iter().position(|t| *t == tile_data);
         match existing_idx {
-            Some(idx) => tile_to_unique.push(idx),
+            Some(idx) => {
+                tile_to_unique.push(idx);
+                // Debug: log some duplicate tiles to see what they look like
+                if debug_non_empty_count <= 5 {
+                    eprintln!("  -> duplicate of unique tile {} (data: {:?}...)", idx, &tile_data[..8]);
+                }
+            }
             None => {
+                debug_new_unique_count += 1;
+                eprintln!("DEBUG: New unique tile {} at ({},{}): {:?}...", unique_tiles.len(), tile_x, tile_y, &tile_data[..8]);
                 tile_to_unique.push(unique_tiles.len());
                 unique_tiles.push(tile_data);
             }
         }
     }
 
-    // Generate BAT binary (little-endian 16-bit words)
+    eprintln!("DEBUG: Processed {} non-empty tiles, found {} new unique patterns", debug_non_empty_count, debug_new_unique_count);
+
+    // Generate BAT binary (big-endian 16-bit words)
     let mut bat_data: Vec<u8> = Vec::with_capacity(total_tiles * 2);
     for (tile_idx, &unique_idx) in tile_to_unique.iter().enumerate() {
         // Empty tiles use palette 0
@@ -1489,9 +1611,9 @@ fn export_binaries(
         let address_field = ((tile_address >> 4) & 0x0FFF) as u16;
         let bat_word = (palette_idx << 12) | address_field;
 
-        // Little-endian
-        bat_data.push((bat_word & 0xFF) as u8);
+        // Big-endian (PCE format)
         bat_data.push((bat_word >> 8) as u8);
+        bat_data.push((bat_word & 0xFF) as u8);
     }
 
     // Generate TILES binary
@@ -1510,11 +1632,51 @@ fn export_binaries(
             } else {
                 0x0000
             };
-            // Little-endian
-            pal_data.push((word & 0xFF) as u8);
+            // Big-endian (PCE VCE format)
             pal_data.push((word >> 8) as u8);
+            pal_data.push((word & 0xFF) as u8);
         }
     }
+
+    let empty_count = empty_tiles.iter().filter(|&&b| b).count();
+
+    // Build debug info string for JavaScript console
+    let mut debug_info = String::new();
+    debug_info.push_str(&format!("Processed {} non-empty tiles, {} unique patterns\n", debug_non_empty_count, debug_new_unique_count));
+
+    // Show first few palette colors
+    if !palettes.is_empty() {
+        debug_info.push_str(&format!("Palette 0: {:?}\n", &palettes[0].iter().take(6).collect::<Vec<_>>()));
+    }
+
+    // Show first non-empty tile's pixel colors
+    let first_non_empty = empty_tiles.iter().position(|&e| !e);
+    if let Some(tile_idx) = first_non_empty {
+        let tile_x = (tile_idx % tiles_x as usize) as u32;
+        let tile_y = (tile_idx / tiles_x as usize) as u32;
+        debug_info.push_str(&format!("First non-empty tile {} at ({},{})\n", tile_idx, tile_x, tile_y));
+
+        // Get first 4 pixel colors from this tile
+        for py in 0..2 {
+            for px in 0..2 {
+                let pixel = img.get_pixel(tile_x * 8 + px, tile_y * 8 + py);
+                let hex = format!("#{:02X}{:02X}{:02X}", pixel.0[0], pixel.0[1], pixel.0[2]);
+                debug_info.push_str(&format!("  pixel({},{})={}\n", px, py, hex));
+            }
+        }
+
+        // Check if these pixels match palette 0
+        let pal_idx = tile_palette_map.get(tile_idx).copied().unwrap_or(0);
+        let palette = palettes.get(pal_idx).cloned().unwrap_or_default();
+        debug_info.push_str(&format!("Using palette {} with {} colors\n", pal_idx, palette.len()));
+    }
+
+    // Debug: Final counts
+    eprintln!("DEBUG export_binaries RESULT:");
+    eprintln!("  total_tiles: {}", total_tiles);
+    eprintln!("  empty_tiles: {}", empty_count);
+    eprintln!("  unique_tiles: {}", unique_tiles.len());
+    eprintln!("  tiles_data size: {} bytes", tiles_data.len());
 
     Ok(BinaryExportResult {
         bat: bat_data,
@@ -1522,6 +1684,11 @@ fn export_binaries(
         palettes: pal_data,
         tile_count: total_tiles,
         unique_tile_count: unique_tiles.len(),
+        image_width: width,
+        image_height: height,
+        palette_count: palettes.len(),
+        empty_tile_count: empty_count,
+        debug_info,
     })
 }
 
