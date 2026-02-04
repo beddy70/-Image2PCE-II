@@ -1971,15 +1971,15 @@ function drawHistogram() {
     { data: hist.b, color: "rgba(80, 80, 255, 0.5)" }
   ];
 
-  const barWidth = width / 256;
+  const barWidth = Math.ceil(width / 256) + 1;
 
   for (const channel of channels) {
     ctx.fillStyle = channel.color;
 
     for (let i = 0; i < 256; i++) {
-      const x = (i / 256) * width;
+      const x = Math.floor((i / 256) * width);
       const barHeight = (channel.data[i] / maxVal) * height;
-      ctx.fillRect(x, height - barHeight, barWidth + 0.5, barHeight);
+      ctx.fillRect(x, height - barHeight, barWidth, barHeight);
     }
   }
 }
