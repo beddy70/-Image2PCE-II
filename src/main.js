@@ -1937,9 +1937,17 @@ function drawHistogram() {
   const canvas = document.querySelector("#histogram-canvas");
   if (!canvas || !state.originalImageData) return;
 
+  // Resize canvas to match display size for crisp rendering
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+
   const ctx = canvas.getContext("2d");
-  const width = canvas.width;
-  const height = canvas.height;
+  ctx.scale(dpr, dpr);
+
+  const width = rect.width;
+  const height = rect.height;
 
   // Clear
   ctx.fillStyle = "#0d1016";
@@ -1956,11 +1964,11 @@ function drawHistogram() {
 
   if (maxVal === 0) return;
 
-  // Draw each channel with transparency
+  // Draw each channel with transparency (shadows left, highlights right)
   const channels = [
-    { data: hist.r, color: "rgba(255, 80, 80, 0.6)" },
-    { data: hist.g, color: "rgba(80, 255, 80, 0.6)" },
-    { data: hist.b, color: "rgba(80, 80, 255, 0.6)" }
+    { data: hist.r, color: "rgba(255, 80, 80, 0.5)" },
+    { data: hist.g, color: "rgba(80, 255, 80, 0.5)" },
+    { data: hist.b, color: "rgba(80, 80, 255, 0.5)" }
   ];
 
   for (const channel of channels) {
@@ -1969,11 +1977,12 @@ function drawHistogram() {
     ctx.moveTo(0, height);
 
     for (let i = 0; i < 256; i++) {
+      const x = (i / 255) * width;
       const barHeight = (channel.data[i] / maxVal) * height;
-      ctx.lineTo(i, height - barHeight);
+      ctx.lineTo(x, height - barHeight);
     }
 
-    ctx.lineTo(255, height);
+    ctx.lineTo(width, height);
     ctx.closePath();
     ctx.fill();
   }
