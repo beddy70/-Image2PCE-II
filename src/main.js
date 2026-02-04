@@ -1459,6 +1459,8 @@ function setupTileEditorDrawing() {
 
 function startTileEditorDraw(event) {
   if (!state.tileEditor.isEditing) return;
+  // Ignore right-click (handled by context menu)
+  if (event.button === 2) return;
 
   const result = getTileAndPixelFromEvent(event);
   if (result.tileIndex === -1) return;
