@@ -1628,13 +1628,18 @@ function saveTileEditorState() {
     );
   }
 
-  // Save copy of originalImageData
-  const copy = new ImageData(
+  // Save copy of originalImageData and tilePaletteMap
+  const imageDataCopy = new ImageData(
     new Uint8ClampedArray(state.originalImageData.data),
     state.originalImageData.width,
     state.originalImageData.height
   );
-  state.tileEditor.history.push(copy);
+  const tilePaletteMapCopy = [...state.tilePaletteMap];
+
+  state.tileEditor.history.push({
+    imageData: imageDataCopy,
+    tilePaletteMap: tilePaletteMapCopy
+  });
 
   // Limit history size
   if (state.tileEditor.history.length > state.tileEditor.maxHistory) {
@@ -1647,15 +1652,25 @@ function saveTileEditorState() {
 function undoTileEditor() {
   if (state.tileEditor.historyIndex < 0 || state.tileEditor.history.length === 0) return;
 
-  const imageData = state.tileEditor.history[state.tileEditor.historyIndex];
+  const historyEntry = state.tileEditor.history[state.tileEditor.historyIndex];
   state.tileEditor.historyIndex--;
-  if (imageData) {
-    // Copy to originalImageData
+
+  if (historyEntry) {
+    // Handle both old format (ImageData) and new format (object with imageData + tilePaletteMap)
+    const imageData = historyEntry.imageData || historyEntry;
+    const tilePaletteMap = historyEntry.tilePaletteMap;
+
+    // Restore originalImageData
     state.originalImageData = new ImageData(
       new Uint8ClampedArray(imageData.data),
       imageData.width,
       imageData.height
     );
+
+    // Restore tilePaletteMap if available
+    if (tilePaletteMap) {
+      state.tilePaletteMap = [...tilePaletteMap];
+    }
 
     // Redraw
     const canvas = document.querySelector("#output-image-canvas");
@@ -1664,6 +1679,11 @@ function undoTileEditor() {
       ctx.putImageData(state.originalImageData, 0, 0);
       applyCrtBlur();
     }
+
+    // Update lock overlay if a palette is selected
+    if (state.tileEditor.activePaletteIndex !== null) {
+      lockTilesExceptPalette(state.tileEditor.activePaletteIndex);
+    }
   }
 }
 
@@ -1671,19 +1691,35 @@ function redoTileEditor() {
   if (state.tileEditor.historyIndex >= state.tileEditor.history.length - 1) return;
 
   state.tileEditor.historyIndex++;
-  const imageData = state.tileEditor.history[state.tileEditor.historyIndex];
-  if (imageData) {
+  const historyEntry = state.tileEditor.history[state.tileEditor.historyIndex];
+
+  if (historyEntry) {
+    // Handle both old format (ImageData) and new format (object with imageData + tilePaletteMap)
+    const imageData = historyEntry.imageData || historyEntry;
+    const tilePaletteMap = historyEntry.tilePaletteMap;
+
+    // Restore originalImageData
     state.originalImageData = new ImageData(
       new Uint8ClampedArray(imageData.data),
       imageData.width,
       imageData.height
     );
 
+    // Restore tilePaletteMap if available
+    if (tilePaletteMap) {
+      state.tilePaletteMap = [...tilePaletteMap];
+    }
+
     const canvas = document.querySelector("#output-image-canvas");
     if (canvas) {
       const ctx = canvas.getContext("2d");
       ctx.putImageData(state.originalImageData, 0, 0);
       applyCrtBlur();
+    }
+
+    // Update lock overlay if a palette is selected
+    if (state.tileEditor.activePaletteIndex !== null) {
+      lockTilesExceptPalette(state.tileEditor.activePaletteIndex);
     }
   }
 }
