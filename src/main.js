@@ -1955,32 +1955,56 @@ function drawHistogram() {
 
   const hist = calculateHistogram(state.originalImageData);
 
+  // Combine RGB into luminance histogram
+  const luminance = new Array(256).fill(0);
+  for (let i = 0; i < 256; i++) {
+    luminance[i] = hist.r[i] + hist.g[i] + hist.b[i];
+  }
+
   // Find max value for normalization (ignore extremes 0 and 255)
-  const maxVal = Math.max(
-    ...hist.r.slice(1, 255),
-    ...hist.g.slice(1, 255),
-    ...hist.b.slice(1, 255)
-  );
+  const maxVal = Math.max(...luminance.slice(1, 255));
 
   if (maxVal === 0) return;
 
-  // Draw each channel as bars (shadows left, highlights right)
-  const channels = [
-    { data: hist.r, color: "rgba(255, 80, 80, 0.5)" },
-    { data: hist.g, color: "rgba(80, 255, 80, 0.5)" },
-    { data: hist.b, color: "rgba(80, 80, 255, 0.5)" }
-  ];
-
   const barWidth = Math.ceil(width / 256) + 1;
 
-  for (const channel of channels) {
-    ctx.fillStyle = channel.color;
+  // Color gradient: blue → cyan → green → yellow → orange → red
+  function getBarColor(index) {
+    const t = index / 255;
+    let r, g, b;
 
-    for (let i = 0; i < 256; i++) {
-      const x = Math.floor((i / 256) * width);
-      const barHeight = (channel.data[i] / maxVal) * height;
-      ctx.fillRect(x, height - barHeight, barWidth, barHeight);
+    if (t < 0.2) {
+      // Blue to cyan
+      const s = t / 0.2;
+      r = 66; g = 66 + (180 * s); b = 180;
+    } else if (t < 0.4) {
+      // Cyan to green
+      const s = (t - 0.2) / 0.2;
+      r = 66; g = 180 + (20 * s); b = 180 - (100 * s);
+    } else if (t < 0.6) {
+      // Green to yellow
+      const s = (t - 0.4) / 0.2;
+      r = 66 + (180 * s); g = 200; b = 80 - (30 * s);
+    } else if (t < 0.8) {
+      // Yellow to orange
+      const s = (t - 0.6) / 0.2;
+      r = 246; g = 200 - (70 * s); b = 50;
+    } else {
+      // Orange to red
+      const s = (t - 0.8) / 0.2;
+      r = 246 - (26 * s); g = 130 - (70 * s); b = 50;
     }
+
+    return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+  }
+
+  // Draw bars with gradient colors
+  for (let i = 0; i < 256; i++) {
+    const x = Math.floor((i / 256) * width);
+    const barHeight = (luminance[i] / maxVal) * height;
+
+    ctx.fillStyle = getBarColor(i);
+    ctx.fillRect(x, height - barHeight, barWidth, barHeight);
   }
 }
 
