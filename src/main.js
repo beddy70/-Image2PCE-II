@@ -1939,9 +1939,9 @@ function drawHistogram() {
   ctx.fillRect(0, 0, width, height);
 
   // Calculate histogram with 8 bins (RGB333 levels)
-  // Also accumulate RGB values to compute average color per bin
+  // Track color occurrences to find dominant color per bin
   const bins = new Array(8).fill(0);
-  const colorSums = Array.from({ length: 8 }, () => ({ r: 0, g: 0, b: 0 }));
+  const colorCounts = Array.from({ length: 8 }, () => new Map());
   const data = state.originalImageData.data;
 
   for (let i = 0; i < data.length; i += 4) {
@@ -1952,9 +1952,11 @@ function drawHistogram() {
     const lum = (r + g + b) / 3;
     const level = Math.min(Math.round(lum / 36.43), 7); // 255/7 ≈ 36.43
     bins[level]++;
-    colorSums[level].r += r;
-    colorSums[level].g += g;
-    colorSums[level].b += b;
+
+    // Track color occurrence (use RGB as key)
+    const colorKey = (r << 16) | (g << 8) | b;
+    const map = colorCounts[level];
+    map.set(colorKey, (map.get(colorKey) || 0) + 1);
   }
 
   // Find max value for normalization (ignore first bin if it dominates)
@@ -1962,20 +1964,29 @@ function drawHistogram() {
 
   if (maxVal === 0) return;
 
-  // Draw 8 bars with average color of pixels in each bin
+  // Draw 8 bars with dominant color of pixels in each bin
   for (let i = 0; i < 8; i++) {
     const x = (i / 8) * width;
     const nextX = ((i + 1) / 8) * width;
     const barWidth = nextX - x;
     const barHeight = (bins[i] / maxVal) * height;
 
-    // Calculate average color for this bin
+    // Find dominant color for this bin
     let color;
-    if (bins[i] > 0) {
-      const avgR = Math.round(colorSums[i].r / bins[i]);
-      const avgG = Math.round(colorSums[i].g / bins[i]);
-      const avgB = Math.round(colorSums[i].b / bins[i]);
-      color = `rgb(${avgR}, ${avgG}, ${avgB})`;
+    const map = colorCounts[i];
+    if (map.size > 0) {
+      let maxCount = 0;
+      let dominantColor = 0;
+      for (const [colorKey, count] of map) {
+        if (count > maxCount) {
+          maxCount = count;
+          dominantColor = colorKey;
+        }
+      }
+      const r = (dominantColor >> 16) & 0xFF;
+      const g = (dominantColor >> 8) & 0xFF;
+      const b = dominantColor & 0xFF;
+      color = `rgb(${r}, ${g}, ${b})`;
     } else {
       // Fallback gray for empty bins
       const gray = Math.round((i / 7) * 255);
