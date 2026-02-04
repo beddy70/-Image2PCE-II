@@ -897,6 +897,9 @@ async function runConversion() {
 
       // Apply current blur setting
       applyCrtBlur();
+
+      // Update histogram
+      drawHistogram();
     };
     img.src = `data:image/png;base64,${previewBase64}`;
 
@@ -1539,6 +1542,8 @@ function stopTileEditorDraw() {
     state.tileEditor.isDrawing = false;
     state.tileEditor.lastPixel = null;
     // Keep tiles locked - selection defines the work area
+    // Update histogram after drawing
+    drawHistogram();
   }
 }
 
@@ -1686,6 +1691,9 @@ function undoTileEditor() {
     if (state.tileEditor.activePaletteIndex !== null) {
       lockTilesExceptPalette(state.tileEditor.activePaletteIndex);
     }
+
+    // Update histogram
+    drawHistogram();
   }
 }
 
@@ -1723,6 +1731,9 @@ function redoTileEditor() {
     if (state.tileEditor.activePaletteIndex !== null) {
       lockTilesExceptPalette(state.tileEditor.activePaletteIndex);
     }
+
+    // Update histogram
+    drawHistogram();
   }
 }
 
@@ -1899,7 +1910,73 @@ function convertTileToPalette(targetPaletteIndex) {
   lockTilesExceptPalette(targetPaletteIndex);
   updateTileEditorPalette(targetPaletteIndex);
 
+  // Update histogram
+  drawHistogram();
+
   state.tileEditor.contextMenuTileIndex = null;
+}
+
+// ===== Histogram =====
+
+function calculateHistogram(imageData) {
+  const histR = new Array(256).fill(0);
+  const histG = new Array(256).fill(0);
+  const histB = new Array(256).fill(0);
+
+  const data = imageData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    histR[data[i]]++;
+    histG[data[i + 1]]++;
+    histB[data[i + 2]]++;
+  }
+
+  return { r: histR, g: histG, b: histB };
+}
+
+function drawHistogram() {
+  const canvas = document.querySelector("#histogram-canvas");
+  if (!canvas || !state.originalImageData) return;
+
+  const ctx = canvas.getContext("2d");
+  const width = canvas.width;
+  const height = canvas.height;
+
+  // Clear
+  ctx.fillStyle = "#0d1016";
+  ctx.fillRect(0, 0, width, height);
+
+  const hist = calculateHistogram(state.originalImageData);
+
+  // Find max value for normalization (ignore extremes 0 and 255)
+  const maxVal = Math.max(
+    ...hist.r.slice(1, 255),
+    ...hist.g.slice(1, 255),
+    ...hist.b.slice(1, 255)
+  );
+
+  if (maxVal === 0) return;
+
+  // Draw each channel with transparency
+  const channels = [
+    { data: hist.r, color: "rgba(255, 80, 80, 0.6)" },
+    { data: hist.g, color: "rgba(80, 255, 80, 0.6)" },
+    { data: hist.b, color: "rgba(80, 80, 255, 0.6)" }
+  ];
+
+  for (const channel of channels) {
+    ctx.fillStyle = channel.color;
+    ctx.beginPath();
+    ctx.moveTo(0, height);
+
+    for (let i = 0; i < 256; i++) {
+      const barHeight = (channel.data[i] / maxVal) * height;
+      ctx.lineTo(i, height - barHeight);
+    }
+
+    ctx.lineTo(255, height);
+    ctx.closePath();
+    ctx.fill();
+  }
 }
 
 // ===== Curve Editor =====
