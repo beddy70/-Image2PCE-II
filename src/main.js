@@ -71,6 +71,7 @@ const state = {
     historyIndex: -1,
     maxHistory: 50,
     lastPixel: null,            // Évite les dessins redondants
+    contextMenuTileIndex: null, // Tuile sous le clic droit pour le menu contextuel
   },
 };
 
@@ -1697,6 +1698,7 @@ function resetTileEditorState() {
   state.tileEditor.activePaletteIndex = null;
   state.tileEditor.lockedTiles = [];
   state.tileEditor.lastPixel = null;
+  state.tileEditor.contextMenuTileIndex = null;
   toggleTileEditing(false);
   setTileEditorTool("brush");
 
@@ -1709,6 +1711,148 @@ function resetTileEditorState() {
   if (paletteNumEl) {
     paletteNumEl.textContent = "-";
   }
+}
+
+// ===== Tile Context Menu =====
+
+function showTileContextMenu(x, y) {
+  const menu = document.querySelector("#tile-context-menu");
+  if (!menu) return;
+
+  // Position the menu, ensuring it stays within viewport
+  const menuWidth = 180;
+  const menuHeight = 40;
+  const maxX = window.innerWidth - menuWidth - 10;
+  const maxY = window.innerHeight - menuHeight - 10;
+
+  menu.style.left = Math.min(x, maxX) + "px";
+  menu.style.top = Math.min(y, maxY) + "px";
+  menu.classList.add("is-visible");
+}
+
+function hideTileContextMenu() {
+  const menu = document.querySelector("#tile-context-menu");
+  if (menu) {
+    menu.classList.remove("is-visible");
+  }
+}
+
+function showPaletteSelector() {
+  hideTileContextMenu();
+
+  const modal = document.querySelector("#palette-selector-modal");
+  const grid = document.querySelector("#palette-selector-grid");
+  if (!modal || !grid) return;
+
+  grid.innerHTML = "";
+
+  state.palettes.forEach((palette, index) => {
+    const item = document.createElement("div");
+    item.className = "palette-selector-item";
+
+    const label = document.createElement("span");
+    label.textContent = `Palette ${index}`;
+    item.appendChild(label);
+
+    const colorsDiv = document.createElement("div");
+    colorsDiv.className = "palette-selector-colors";
+
+    palette.forEach((color) => {
+      const colorDiv = document.createElement("div");
+      colorDiv.className = "palette-selector-color";
+      colorDiv.style.background = color;
+      colorsDiv.appendChild(colorDiv);
+    });
+
+    item.appendChild(colorsDiv);
+    item.addEventListener("click", () => convertTileToPalette(index));
+    grid.appendChild(item);
+  });
+
+  modal.classList.add("is-visible");
+}
+
+function hidePaletteSelector() {
+  const modal = document.querySelector("#palette-selector-modal");
+  if (modal) {
+    modal.classList.remove("is-visible");
+  }
+}
+
+function findClosestColorInPalette(r, g, b, palette) {
+  let minDist = Infinity;
+  let closest = { r: 0, g: 0, b: 0 };
+
+  for (const hex of palette) {
+    const pr = parseInt(hex.slice(1, 3), 16);
+    const pg = parseInt(hex.slice(3, 5), 16);
+    const pb = parseInt(hex.slice(5, 7), 16);
+
+    // Euclidean distance in RGB space
+    const dist = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2;
+
+    if (dist < minDist) {
+      minDist = dist;
+      closest = { r: pr, g: pg, b: pb };
+    }
+  }
+
+  return closest;
+}
+
+function convertTileToPalette(targetPaletteIndex) {
+  hidePaletteSelector();
+
+  const tileIndex = state.tileEditor.contextMenuTileIndex;
+  if (tileIndex === null) return;
+
+  const targetPalette = state.palettes[targetPaletteIndex];
+  if (!targetPalette) return;
+
+  // Save state for undo
+  saveTileEditorState();
+
+  // Calculate tile coordinates
+  const tilesPerRow = state.outputWidth / 8;
+  const tileX = (tileIndex % tilesPerRow) * 8;
+  const tileY = Math.floor(tileIndex / tilesPerRow) * 8;
+
+  // Convert each pixel of the tile
+  for (let py = 0; py < 8; py++) {
+    for (let px = 0; px < 8; px++) {
+      const x = tileX + px;
+      const y = tileY + py;
+      const idx = (y * state.outputWidth + x) * 4;
+
+      const r = state.originalImageData.data[idx];
+      const g = state.originalImageData.data[idx + 1];
+      const b = state.originalImageData.data[idx + 2];
+
+      // Find closest color in target palette
+      const closest = findClosestColorInPalette(r, g, b, targetPalette);
+
+      state.originalImageData.data[idx] = closest.r;
+      state.originalImageData.data[idx + 1] = closest.g;
+      state.originalImageData.data[idx + 2] = closest.b;
+    }
+  }
+
+  // Update tilePaletteMap
+  state.tilePaletteMap[tileIndex] = targetPaletteIndex;
+
+  // Redraw canvas
+  const canvas = document.querySelector("#output-image-canvas");
+  if (canvas) {
+    const ctx = canvas.getContext("2d");
+    ctx.putImageData(state.originalImageData, 0, 0);
+    applyCrtBlur();
+  }
+
+  // Update selection to new palette
+  lockTilesExceptPalette(targetPaletteIndex);
+  updateTileEditorPalette(targetPaletteIndex);
+
+  state.tileEditor.contextMenuTileIndex = null;
 }
 
 // ===== Curve Editor =====
@@ -2581,7 +2725,38 @@ function bindActions() {
     outputContainer.addEventListener("mousemove", drawTileEditorPixel);
     outputContainer.addEventListener("mouseup", stopTileEditorDraw);
     outputContainer.addEventListener("mouseleave", stopTileEditorDraw);
+
+    // Context menu for tile conversion
+    outputContainer.addEventListener("contextmenu", (e) => {
+      if (!state.tileEditor.isEditing) return;
+      if (state.tileEditor.tool !== "brush") return;
+
+      e.preventDefault();
+      const result = getTileAndPixelFromEvent(e);
+      if (result.tileIndex === -1) return;
+      if (state.emptyTiles[result.tileIndex]) return;
+
+      state.tileEditor.contextMenuTileIndex = result.tileIndex;
+      showTileContextMenu(e.clientX, e.clientY);
+    });
   }
+
+  // Close context menu on click outside
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest("#tile-context-menu")) {
+      hideTileContextMenu();
+    }
+  });
+
+  // Context menu: Convert to palette button
+  document.querySelector("#convert-to-palette-btn")?.addEventListener("click", () => {
+    showPaletteSelector();
+  });
+
+  // Palette selector: Cancel button
+  document.querySelector("#palette-selector-cancel")?.addEventListener("click", () => {
+    hidePaletteSelector();
+  });
 
   // Keyboard shortcuts for mask editing and tile editing
   document.addEventListener("keydown", (e) => {

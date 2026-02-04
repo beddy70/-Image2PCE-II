@@ -209,6 +209,23 @@ Cliquez sur le bouton **🎨** en bas du visualiseur de sortie (à droite) pour 
    - Cliquez et glissez sur les tuiles déverrouillées pour peindre pixel par pixel
    - Les tuiles verrouillées ne peuvent pas être modifiées
 
+### Menu contextuel (clic droit)
+
+En mode pinceau (🖌️), un clic droit sur une tuile affiche un menu contextuel :
+
+| Option | Description |
+|--------|-------------|
+| **Convert to palette...** | Convertit la tuile vers une autre palette |
+
+#### Conversion de palette
+
+Cette fonction permet de changer la palette d'une tuile individuelle :
+1. Clic droit sur la tuile à convertir
+2. Sélectionnez "Convert to palette..."
+3. Choisissez la palette cible parmi les 16 disponibles
+4. Les pixels de la tuile sont automatiquement convertis aux couleurs les plus proches de la nouvelle palette
+5. La sélection bascule sur la nouvelle palette
+
 ### Raccourcis clavier
 
 | Raccourci | Action |
@@ -217,6 +234,7 @@ Cliquez sur le bouton **🎨** en bas du visualiseur de sortie (à droite) pour 
 | **Ctrl+Z** / **Cmd+Z** | Annuler |
 | **Ctrl+Y** / **Cmd+Y** | Rétablir |
 | **Ctrl+Shift+Z** / **Cmd+Shift+Z** | Rétablir (alternative) |
+| **Clic droit** | Menu contextuel (en mode pinceau) |
 
 ### Comportements particuliers
 
