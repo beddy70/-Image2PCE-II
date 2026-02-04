@@ -24,14 +24,15 @@ Image2PCE II est un outil de conversion d'images pour la console PC-Engine / Tur
    - [Source (gauche)](#source-gauche)
    - [Sortie (droite)](#sortie-droite)
 4. [Masque de dithering](#masque-de-dithering)
-5. [Palettes générées](#palettes-générées)
-6. [Workflow recommandé](#workflow-recommandé)
-7. [Formats d'export](#formats-dexport)
+5. [Éditeur de tuiles](#éditeur-de-tuiles)
+6. [Palettes générées](#palettes-générées)
+7. [Workflow recommandé](#workflow-recommandé)
+8. [Formats d'export](#formats-dexport)
    - [Binaires](#binaires-répertoire-avec-bat-tiles-pal)
    - [Assembleur](#assembleur-asm)
-8. [Format technique PC-Engine](#format-technique-pc-engine)
-9. [Raccourcis et astuces](#raccourcis-et-astuces)
-10. [Dépannage](#dépannage)
+9. [Format technique PC-Engine](#format-technique-pc-engine)
+10. [Raccourcis et astuces](#raccourcis-et-astuces)
+11. [Dépannage](#dépannage)
 
 ---
 
@@ -173,6 +174,57 @@ Cliquez sur le bouton **crayon** (✏️) sous l'image source pour activer le mo
 - **Blanc** = pas de dithering, couleurs unies
 
 Le masque est automatiquement redimensionné pour correspondre à l'image de sortie, y compris si l'option "Keep ratio" est activée.
+
+---
+
+## Éditeur de tuiles
+
+L'éditeur de tuiles permet de retoucher les pixels individuels du résultat converti, après la conversion initiale. Chaque tuile fait 8×8 pixels et utilise une seule palette parmi les 16 disponibles.
+
+### Activation
+
+Cliquez sur le bouton **🎨** en bas du visualiseur de sortie (à droite) pour activer le mode édition. La barre d'outils se déploie avec les contrôles disponibles.
+
+### Outils disponibles
+
+| Outil | Icône | Description |
+|-------|-------|-------------|
+| **Pinceau** | 🖌️ | Dessine les pixels avec la couleur sélectionnée |
+| **Sélection** | 🔍 | Verrouille toutes les tuiles sauf celles de la palette cliquée |
+| **Annuler** | ↩️ | Annule la dernière action (jusqu'à 50 états) |
+| **Rétablir** | ↪️ | Rétablit l'action annulée |
+
+### Workflow d'utilisation
+
+1. **Convertir l'image** : L'éditeur n'est disponible qu'après une conversion
+2. **Activer l'édition** : Cliquez sur 🎨, le curseur devient une croix
+3. **Sélectionner une zone** :
+   - Cliquez sur 🔍 (outil Sélection)
+   - Cliquez sur une tuile dans l'image
+   - Toutes les tuiles utilisant d'autres palettes sont verrouillées (overlay semi-transparent)
+   - La palette de la tuile sélectionnée s'affiche
+4. **Choisir une couleur** : Cliquez sur une des 16 couleurs de la palette affichée
+5. **Dessiner** :
+   - Cliquez sur 🖌️ (outil Pinceau)
+   - Cliquez et glissez sur les tuiles déverrouillées pour peindre pixel par pixel
+   - Les tuiles verrouillées ne peuvent pas être modifiées
+
+### Raccourcis clavier
+
+| Raccourci | Action |
+|-----------|--------|
+| **X** | Basculer entre Pinceau et Sélection |
+| **Ctrl+Z** / **Cmd+Z** | Annuler |
+| **Ctrl+Y** / **Cmd+Y** | Rétablir |
+| **Ctrl+Shift+Z** / **Cmd+Shift+Z** | Rétablir (alternative) |
+
+### Comportements particuliers
+
+- **Sélection requise** : L'outil Pinceau nécessite d'abord une sélection via l'outil 🔍
+- **Tuiles vides** : Les tuiles entièrement de couleur 0 ne sont pas éditables
+- **Verrouillage par palette** : Toutes les tuiles d'une même palette partagent le même état de verrouillage
+- **Historique limité** : 50 états maximum (les plus anciens sont supprimés si dépassé)
+- **Désactivation** : Cliquer à nouveau sur 🎨 réinitialise l'éditeur (sélection, historique, verrouillage)
 
 ---
 
