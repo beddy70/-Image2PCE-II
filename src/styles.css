@@ -759,6 +759,29 @@ input[type="range"] {
   height: 100%;
 }
 
+/* Export settings */
+.settings__group--export {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 120px;
+}
+
+.settings__group--export label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #c8d0dc;
+}
+
+.settings__group-title {
+  font-size: 12px;
+  color: #aab3c2;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
 /* VRAM address input in topbar */
 .vram-address-label {
   display: flex;

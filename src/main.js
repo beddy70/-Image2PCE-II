@@ -2378,9 +2378,15 @@ async function exportBinaries() {
 
     const vramAddress = getVramAddress();
 
+    // Get endianness settings
+    const batBigEndian = document.querySelector("#bat-big-endian")?.checked || false;
+    const palBigEndian = document.querySelector("#pal-big-endian")?.checked || false;
+    const tilesBigEndian = document.querySelector("#tiles-big-endian")?.checked || false;
+
     // Debug: log data being passed
     console.info(`DEBUG EXPORT: imageData size: ${imageData.length} bytes`);
     console.info(`DEBUG EXPORT: palettes: ${state.palettes.length}, tilePaletteMap: ${state.tilePaletteMap.length}, emptyTiles: ${state.emptyTiles.length}`);
+    console.info(`DEBUG EXPORT: Endianness - BAT: ${batBigEndian ? 'big' : 'little'}, PAL: ${palBigEndian ? 'big' : 'little'}, TILES: ${tilesBigEndian ? 'big' : 'little'}`);
     // Log first palette content
     if (state.palettes.length > 0) {
       console.info(`DEBUG EXPORT: Palette 0 has ${state.palettes[0].length} colors: ${state.palettes[0].slice(0, 5).join(', ')}...`);
@@ -2396,6 +2402,9 @@ async function exportBinaries() {
       tilePaletteMap: state.tilePaletteMap,
       emptyTiles: state.emptyTiles,
       vramBaseAddress: vramAddress,
+      batBigEndian,
+      palBigEndian,
+      tilesBigEndian,
     });
 
     // Show save dialog - user picks base filename

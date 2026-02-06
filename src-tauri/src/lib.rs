@@ -1484,6 +1484,9 @@ fn export_binaries(
     tile_palette_map: Vec<usize>,
     empty_tiles: Vec<bool>,
     vram_base_address: u32,
+    bat_big_endian: bool,
+    pal_big_endian: bool,
+    tiles_big_endian: bool,
 ) -> Result<BinaryExportResult, String> {
     // Decode PNG image
     let img = image::load_from_memory(&image_data)
@@ -1597,8 +1600,12 @@ fn export_binaries(
     }
 
     eprintln!("DEBUG: Processed {} non-empty tiles, found {} new unique patterns", debug_non_empty_count, debug_new_unique_count);
+    eprintln!("DEBUG: Endianness - BAT: {}, PAL: {}, TILES: {}",
+        if bat_big_endian { "big" } else { "little" },
+        if pal_big_endian { "big" } else { "little" },
+        if tiles_big_endian { "big" } else { "little" });
 
-    // Generate BAT binary (little-endian 16-bit words)
+    // Generate BAT binary (16-bit words)
     let mut bat_data: Vec<u8> = Vec::with_capacity(total_tiles * 2);
     for (tile_idx, &unique_idx) in tile_to_unique.iter().enumerate() {
         // Empty tiles use palette 0
@@ -1611,15 +1618,27 @@ fn export_binaries(
         let address_field = ((tile_address >> 4) & 0x0FFF) as u16;
         let bat_word = (palette_idx << 12) | address_field;
 
-        // Little-endian (6502/HuC6280 format)
-        bat_data.push((bat_word & 0xFF) as u8);
-        bat_data.push((bat_word >> 8) as u8);
+        if bat_big_endian {
+            bat_data.push((bat_word >> 8) as u8);
+            bat_data.push((bat_word & 0xFF) as u8);
+        } else {
+            bat_data.push((bat_word & 0xFF) as u8);
+            bat_data.push((bat_word >> 8) as u8);
+        }
     }
 
-    // Generate TILES binary
+    // Generate TILES binary (swap byte pairs if big-endian)
     let mut tiles_data: Vec<u8> = Vec::with_capacity(unique_tiles.len() * 32);
     for tile in unique_tiles.iter() {
-        tiles_data.extend_from_slice(tile);
+        if tiles_big_endian {
+            // Swap each pair of bytes (plane data is interleaved in pairs)
+            for i in (0..32).step_by(2) {
+                tiles_data.push(tile[i + 1]);
+                tiles_data.push(tile[i]);
+            }
+        } else {
+            tiles_data.extend_from_slice(tile);
+        }
     }
 
     // Generate PALETTES binary (16 palettes x 16 colors x 2 bytes = 512 bytes)
@@ -1632,9 +1651,13 @@ fn export_binaries(
             } else {
                 0x0000
             };
-            // Little-endian (6502/HuC6280 format)
-            pal_data.push((word & 0xFF) as u8);
-            pal_data.push((word >> 8) as u8);
+            if pal_big_endian {
+                pal_data.push((word >> 8) as u8);
+                pal_data.push((word & 0xFF) as u8);
+            } else {
+                pal_data.push((word & 0xFF) as u8);
+                pal_data.push((word >> 8) as u8);
+            }
         }
     }
 
