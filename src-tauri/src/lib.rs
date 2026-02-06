@@ -1598,7 +1598,7 @@ fn export_binaries(
 
     eprintln!("DEBUG: Processed {} non-empty tiles, found {} new unique patterns", debug_non_empty_count, debug_new_unique_count);
 
-    // Generate BAT binary (big-endian 16-bit words)
+    // Generate BAT binary (little-endian 16-bit words)
     let mut bat_data: Vec<u8> = Vec::with_capacity(total_tiles * 2);
     for (tile_idx, &unique_idx) in tile_to_unique.iter().enumerate() {
         // Empty tiles use palette 0
@@ -1611,9 +1611,9 @@ fn export_binaries(
         let address_field = ((tile_address >> 4) & 0x0FFF) as u16;
         let bat_word = (palette_idx << 12) | address_field;
 
-        // Big-endian (PCE format)
-        bat_data.push((bat_word >> 8) as u8);
+        // Little-endian (6502/HuC6280 format)
         bat_data.push((bat_word & 0xFF) as u8);
+        bat_data.push((bat_word >> 8) as u8);
     }
 
     // Generate TILES binary
@@ -1632,9 +1632,9 @@ fn export_binaries(
             } else {
                 0x0000
             };
-            // Big-endian (PCE VCE format)
-            pal_data.push((word >> 8) as u8);
+            // Little-endian (6502/HuC6280 format)
             pal_data.push((word & 0xFF) as u8);
+            pal_data.push((word >> 8) as u8);
         }
     }
 
