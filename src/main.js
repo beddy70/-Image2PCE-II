@@ -3492,25 +3492,29 @@ async function loadProject() {
 
     // Restore dithering mask (after image is loaded to ensure canvas exists)
     if (project.ditherMask && project.ditherMask.dataUrl && imageLoaded) {
-      const maskImg = new Image();
-      maskImg.onload = () => {
-        // The mask canvas should exist after loadImageFromPath
-        if (state.mask.canvas && state.mask.ctx) {
-          // Clear existing content and history
-          state.mask.history = [];
-          state.mask.historyIndex = -1;
-          // Resize canvas to match saved mask dimensions
-          state.mask.canvas.width = project.ditherMask.width;
-          state.mask.canvas.height = project.ditherMask.height;
-          state.mask.width = project.ditherMask.width;
-          state.mask.height = project.ditherMask.height;
-          // Draw the loaded mask
-          state.mask.ctx.drawImage(maskImg, 0, 0);
-          // Save initial state for undo
-          saveMaskState();
-        }
-      };
-      maskImg.src = project.ditherMask.dataUrl;
+      await new Promise((resolve) => {
+        const maskImg = new Image();
+        maskImg.onload = () => {
+          // The mask canvas should exist after loadImageFromPath
+          if (state.mask.canvas && state.mask.ctx) {
+            // Clear existing content and history
+            state.mask.history = [];
+            state.mask.historyIndex = -1;
+            // Resize canvas to match saved mask dimensions
+            state.mask.canvas.width = project.ditherMask.width;
+            state.mask.canvas.height = project.ditherMask.height;
+            state.mask.width = project.ditherMask.width;
+            state.mask.height = project.ditherMask.height;
+            // Draw the loaded mask
+            state.mask.ctx.drawImage(maskImg, 0, 0);
+            // Save initial state for undo (isLoadingProject still true)
+            saveMaskState();
+          }
+          resolve();
+        };
+        maskImg.onerror = resolve; // Don't block on error
+        maskImg.src = project.ditherMask.dataUrl;
+      });
     }
 
     // Restore palette group assignments (after image is loaded to ensure canvas exists)
