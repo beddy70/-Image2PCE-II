@@ -1628,18 +1628,36 @@ fn export_binaries(
         }
     }
 
-    // Generate TILES binary (swap byte pairs if big-endian)
+    // Generate TILES binary (native format is big-endian, swap for little-endian)
     let mut tiles_data: Vec<u8> = Vec::with_capacity(unique_tiles.len() * 32);
+
+    // Debug: show first non-empty tile before/after
+    if unique_tiles.len() > 1 {
+        eprintln!("DEBUG TILES: tiles_big_endian = {}", tiles_big_endian);
+        eprintln!("DEBUG TILES: First tile (raw): {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X}",
+            unique_tiles[1][0], unique_tiles[1][1], unique_tiles[1][2], unique_tiles[1][3],
+            unique_tiles[1][4], unique_tiles[1][5], unique_tiles[1][6], unique_tiles[1][7]);
+    }
+
     for tile in unique_tiles.iter() {
         if tiles_big_endian {
-            // Swap each pair of bytes (plane data is interleaved in pairs)
+            // Keep native format (already big-endian: plane1, plane2 per line)
+            tiles_data.extend_from_slice(tile);
+        } else {
+            // Swap each pair of bytes for little-endian output
             for i in (0..32).step_by(2) {
                 tiles_data.push(tile[i + 1]);
                 tiles_data.push(tile[i]);
             }
-        } else {
-            tiles_data.extend_from_slice(tile);
         }
+    }
+
+    // Debug: show first non-empty tile after swap
+    if unique_tiles.len() > 1 {
+        let offset = 32; // Skip empty tile (tile 0)
+        eprintln!("DEBUG TILES: First tile (output): {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X} {:02X}",
+            tiles_data[offset], tiles_data[offset+1], tiles_data[offset+2], tiles_data[offset+3],
+            tiles_data[offset+4], tiles_data[offset+5], tiles_data[offset+6], tiles_data[offset+7]);
     }
 
     // Generate PALETTES binary (16 palettes x 16 colors x 2 bytes = 512 bytes)
