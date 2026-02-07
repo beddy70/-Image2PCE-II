@@ -234,6 +234,8 @@ Une grille de 16 boutons colorés (0-F) permet de sélectionner le groupe de pal
 | **Ctrl+Z** | Annuler |
 | **Ctrl+Y** | Rétablir |
 | **0-9, A-F** | Sélectionner directement un groupe (0-15) |
+| **Shift + glisser** | Déplacer l'image pendant l'édition |
+| **Molette** | Zoomer/dézoomer |
 
 ### Fonctionnement lors de la conversion
 

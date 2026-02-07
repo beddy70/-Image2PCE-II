@@ -1182,6 +1182,10 @@ function setupDrag(target) {
     if (target === "input" && state.mask.isEditing && !event.shiftKey) {
       return;
     }
+    // Don't start drag if palette groups editing is active on input canvas, unless Shift is held
+    if (target === "input" && state.paletteGroups.isEditing && !event.shiftKey) {
+      return;
+    }
     // Don't start drag if tile editing is active on output canvas, unless Shift is held
     if (target === "output" && state.tileEditor.isEditing && !event.shiftKey) {
       return;
@@ -2149,6 +2153,8 @@ function setupPaletteGroupsDrawing() {
 
 function handlePaletteGroupsMouseDown(event) {
   if (!state.paletteGroups.isEditing) return;
+  // Allow Shift+drag for panning
+  if (event.shiftKey) return;
   event.preventDefault();
   state.paletteGroups.isDrawing = true;
   applyPaletteGroupsBrush(event);
