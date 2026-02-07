@@ -143,6 +143,7 @@ fn run_conversion(
     dither_mask: Vec<u8>,
     mask_width: u32,
     mask_height: u32,
+    palette_group_constraints: Vec<i32>,  // -1 = auto, 0-15 = forced group
 ) -> Result<ConversionResult, String> {
     // Emit: loading image
     let _ = app.emit("conversion-progress", ProgressEvent {
@@ -196,6 +197,7 @@ fn run_conversion(
         &quantized_for_palette,
         palette_count as usize,
         &background_color,
+        &palette_group_constraints,
     )?;
 
     // Emit: applying palettes with dithering
@@ -428,6 +430,7 @@ fn build_palettes_for_tiles(
     image: &RgbaImage,
     palette_count: usize,
     background_color: &str,
+    constraints: &[i32],  // -1 = auto, 0-15 = forced group
 ) -> Result<TilePaletteResult, String> {
     use std::collections::HashMap;
 
@@ -445,6 +448,26 @@ fn build_palettes_for_tiles(
             ti.colors.len() == 1 && ti.colors[0] == global_color0
         })
         .collect();
+
+    // Build constrained tiles map: group -> list of tile indices
+    let mut constrained_tiles: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut unconstrained_indices: Vec<usize> = Vec::new();
+    let has_constraints = !constraints.is_empty();
+
+    for (idx, tile_info) in tile_infos.iter().enumerate() {
+        if empty_tiles[idx] {
+            continue; // Empty tiles always go to palette 0
+        }
+        let constraint = constraints.get(idx).copied().unwrap_or(-1);
+        if constraint >= 0 && constraint < 16 {
+            constrained_tiles
+                .entry(constraint as usize)
+                .or_insert_with(Vec::new)
+                .push(idx);
+        } else {
+            unconstrained_indices.push(idx);
+        }
+    }
 
     // Filter out empty tiles for palette building
     let non_empty_tile_infos: Vec<&TileColorInfo> = tile_infos
@@ -474,9 +497,36 @@ fn build_palettes_for_tiles(
         })
         .collect();
     let mut clusters = seed_palette_clusters_v2(&non_empty_infos_owned, palette_slots, &global_color0, &global_color_freq);
-    let mut tile_palette_map = vec![0usize; tiles.len()];
 
-    // Iterate to refine clustering (only for non-empty tiles)
+    // Initialize tile_palette_map with constraints
+    let mut tile_palette_map = vec![0usize; tiles.len()];
+    for (group, tile_indices) in constrained_tiles.iter() {
+        for &tile_idx in tile_indices {
+            tile_palette_map[tile_idx] = *group;
+        }
+    }
+
+    // Pre-populate constrained palettes with colors from constrained tiles
+    if has_constraints {
+        for (group, tile_indices) in constrained_tiles.iter() {
+            if *group >= clusters.len() {
+                continue;
+            }
+            for &tile_idx in tile_indices {
+                for color in &tile_infos[tile_idx].colors {
+                    if color != &global_color0 && !clusters[*group].contains(color) {
+                        clusters[*group].push(color.clone());
+                    }
+                }
+            }
+            // Truncate to 16 colors if needed
+            if clusters[*group].len() > 16 {
+                clusters[*group].truncate(16);
+            }
+        }
+    }
+
+    // Iterate to refine clustering (only for non-empty, unconstrained tiles)
     for _ in 0..6 {
         // Assign each non-empty tile to best matching palette
         for (tile_index, tile_info) in tile_infos.iter().enumerate() {
@@ -484,8 +534,16 @@ fn build_palettes_for_tiles(
                 // Empty tiles stay at palette 0 (which has color0)
                 tile_palette_map[tile_index] = 0;
             } else {
-                let palette_index = best_cluster_for_tile(&clusters, &tile_info.colors, &global_color0);
-                tile_palette_map[tile_index] = palette_index;
+                // Check if this tile has a constraint
+                let constraint = constraints.get(tile_index).copied().unwrap_or(-1);
+                if constraint >= 0 && constraint < 16 {
+                    // Keep the constrained assignment
+                    tile_palette_map[tile_index] = constraint as usize;
+                } else {
+                    // Auto-assign to best matching palette
+                    let palette_index = best_cluster_for_tile(&clusters, &tile_info.colors, &global_color0);
+                    tile_palette_map[tile_index] = palette_index;
+                }
             }
         }
 
@@ -527,12 +585,17 @@ fn build_palettes_for_tiles(
     }
 
     // Compact palettes: move unused palettes to the end
-    let (palettes, palette_colors, tile_palette_map) = compact_palettes(
-        palettes,
-        palette_colors,
-        tile_palette_map,
-        &global_color0,
-    );
+    // Skip compaction if there are constraints to preserve user's group choices
+    let (palettes, palette_colors, tile_palette_map) = if has_constraints {
+        (palettes, palette_colors, tile_palette_map)
+    } else {
+        compact_palettes(
+            palettes,
+            palette_colors,
+            tile_palette_map,
+            &global_color0,
+        )
+    };
 
     Ok(TilePaletteResult {
         palettes,

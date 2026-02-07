@@ -24,15 +24,16 @@ Image2PCE II est un outil de conversion d'images pour la console PC-Engine / Tur
    - [Source (gauche)](#source-gauche)
    - [Sortie (droite)](#sortie-droite)
 4. [Masque de dithering](#masque-de-dithering)
-5. [Éditeur de tuiles](#éditeur-de-tuiles)
-6. [Palettes générées](#palettes-générées)
-7. [Workflow recommandé](#workflow-recommandé)
-8. [Formats d'export](#formats-dexport)
+5. [Groupes de palettes](#groupes-de-palettes)
+6. [Éditeur de tuiles](#éditeur-de-tuiles)
+7. [Palettes générées](#palettes-générées)
+8. [Workflow recommandé](#workflow-recommandé)
+9. [Formats d'export](#formats-dexport)
    - [Binaires](#binaires-répertoire-avec-bat-tiles-pal)
    - [Assembleur](#assembleur-asm)
-9. [Format technique PC-Engine](#format-technique-pc-engine)
-10. [Raccourcis et astuces](#raccourcis-et-astuces)
-11. [Dépannage](#dépannage)
+10. [Format technique PC-Engine](#format-technique-pc-engine)
+11. [Raccourcis et astuces](#raccourcis-et-astuces)
+12. [Dépannage](#dépannage)
 
 ---
 
@@ -189,6 +190,59 @@ Cliquez sur le bouton **crayon** (✏️) sous l'image source pour activer le mo
 - **Blanc** = pas de dithering, couleurs unies
 
 Le masque est automatiquement redimensionné pour correspondre à l'image de sortie, y compris si l'option "Keep ratio" est activée.
+
+---
+
+## Groupes de palettes
+
+L'éditeur de groupes de palettes permet de forcer certaines tuiles à utiliser une palette spécifique lors de la conversion. C'est utile pour garantir que des zones particulières de l'image utilisent les mêmes couleurs, ou pour optimiser manuellement la distribution des palettes.
+
+### Concept des tuiles virtuelles
+
+L'image source est découpée en **tuiles virtuelles** correspondant aux tuiles PCE de sortie. La grille virtuelle a les mêmes dimensions que la sortie configurée (ex: 32×32 tuiles).
+
+- Une image source de 512×512 pixels avec sortie 32×32 tuiles → tuiles virtuelles de 16×16 pixels
+- Une image source de 640×480 pixels avec sortie 64×32 tuiles → tuiles virtuelles de 10×15 pixels
+
+### Activation
+
+Cliquez sur le bouton **cible** (🎯) sous l'image source pour activer le mode édition. La grille des tuiles virtuelles apparaît en superposition sur l'image.
+
+### Outils disponibles
+
+| Outil | Description |
+|-------|-------------|
+| **Pinceau** (🖌️) | Assigne les tuiles au groupe sélectionné |
+| **Gomme** (🧽) | Retire l'assignation (retour au mode automatique) |
+| **Taille** | Ajuste la taille du pinceau (1-5 tuiles) |
+| **Annuler** (↩️) | Annule la dernière action |
+| **Rétablir** (↪️) | Rétablit l'action annulée |
+| **Effacer tout** | Supprime toutes les assignations |
+
+### Sélecteur de groupe
+
+Une grille de 16 boutons colorés (0-F) permet de sélectionner le groupe de palette actif. Chaque groupe correspond à une des 16 palettes PC-Engine :
+
+- Les tuiles assignées à un groupe seront **forcées** à utiliser cette palette lors de la conversion
+- Les tuiles non assignées seront optimisées automatiquement par l'algorithme de clustering
+
+### Raccourcis clavier
+
+| Touche | Action |
+|--------|--------|
+| **X** | Basculer entre pinceau et gomme |
+| **Ctrl+Z** | Annuler |
+| **Ctrl+Y** | Rétablir |
+| **0-9, A-F** | Sélectionner directement un groupe (0-15) |
+
+### Fonctionnement lors de la conversion
+
+1. Les tuiles avec contraintes sont pré-assignées à leur groupe
+2. Les couleurs de ces tuiles contribuent à la composition de leur palette
+3. L'algorithme de clustering optimise uniquement les tuiles non contraintes
+4. Les tuiles contraintes conservent leur groupe, même si d'autres couleurs seraient plus proches
+
+**Note** : Si vous changez les dimensions de sortie, les assignations sont réinitialisées car la grille de tuiles change.
 
 ---
 

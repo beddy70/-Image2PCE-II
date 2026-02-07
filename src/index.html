@@ -177,6 +177,29 @@
               <button class="btn btn--small" id="mask-invert" title="Inverser le masque">Inverser</button>
             </div>
           </div>
+          <div class="viewer__toolbar viewer__toolbar--palette-groups" id="palette-groups-toolbar">
+            <button class="btn btn--small btn--icon" id="palette-groups-toggle"
+                    title="Assignation des groupes de palettes">
+              <span class="palette-groups-toggle-icon">🎯</span>
+            </button>
+            <div class="palette-groups-tools" id="palette-groups-tools">
+              <button class="btn btn--small btn--icon is-active" id="pg-brush" title="Assigner le groupe sélectionné">🖌️</button>
+              <button class="btn btn--small btn--icon" id="pg-eraser" title="Retirer l'assignation">🧽</button>
+              <span class="pg-separator"></span>
+              <span class="pg-label">Groupe:</span>
+              <div class="palette-groups-selector" id="palette-groups-selector"></div>
+              <span class="pg-separator"></span>
+              <label class="pg-brush-size">
+                <span>Taille</span>
+                <input type="range" id="pg-brush-size" min="1" max="5" value="1" />
+                <span id="pg-brush-size-value">1</span>
+              </label>
+              <span class="pg-separator"></span>
+              <button class="btn btn--small btn--icon" id="pg-undo" title="Annuler (Ctrl+Z)">↩️</button>
+              <button class="btn btn--small btn--icon" id="pg-redo" title="Rétablir (Ctrl+Y)">↪️</button>
+              <button class="btn btn--small" id="pg-clear">Effacer tout</button>
+            </div>
+          </div>
           <div class="viewer__zoom">
             <label>
               Zoom source

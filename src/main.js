@@ -74,7 +74,33 @@ const state = {
     lastPixel: null,            // Évite les dessins redondants
     contextMenuTileIndex: null, // Tuile sous le clic droit pour le menu contextuel
   },
+  // Palette groups editor state
+  paletteGroups: {
+    canvas: null,
+    ctx: null,
+    isEditing: false,
+    isDrawing: false,
+    tool: "brush",           // "brush" | "eraser"
+    brushSize: 1,            // en tuiles virtuelles (1-5)
+    selectedGroup: 0,        // groupe actif (0-15)
+    gridWidth: 0,            // nombre de colonnes
+    gridHeight: 0,           // nombre de lignes
+    virtualTileWidth: 0,     // pixels par tuile virtuelle (horizontal)
+    virtualTileHeight: 0,    // pixels par tuile virtuelle (vertical)
+    assignments: [],         // [y][x] = groupe (0-15) ou null
+    history: [],
+    historyIndex: -1,
+    maxHistory: 50,
+  },
 };
+
+// Palette group colors for visualization
+const PALETTE_GROUP_COLORS = [
+  '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4',
+  '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F',
+  '#BB8FCE', '#85C1E9', '#F8B500', '#58D68D',
+  '#EC7063', '#5DADE2', '#AF7AC5', '#45B39D'
+];
 
 // Convert hex color to RGB333 (3 bits per channel, values 0-7)
 function hexToRGB333(hex) {
@@ -112,10 +138,11 @@ async function openImage() {
     <div id="brush-cursor" class="brush-cursor"></div>
   `;
 
-  // Wait for image to load to get dimensions for mask
+  // Wait for image to load to get dimensions for mask and palette groups
   const sourceImg = document.querySelector("#source-image");
   sourceImg.onload = () => {
     initMaskCanvas(sourceImg.naturalWidth, sourceImg.naturalHeight);
+    initPaletteGroupsCanvas();
   };
 
   applyZoom("input");
@@ -171,6 +198,11 @@ function updateSizeConstraints() {
   }
   if (parseInt(offsetYEl.value, 10) > maxOffsetY) {
     offsetYEl.value = maxOffsetY;
+  }
+
+  // Reinitialize palette groups canvas if source image is loaded
+  if (state.inputImage) {
+    initPaletteGroupsCanvas();
   }
 }
 
@@ -893,6 +925,9 @@ async function runConversion() {
     const useDitherMask = document.querySelector("#dither-mask")?.checked || false;
     const maskData = useDitherMask ? getMaskData() : null;
 
+    // Get palette group constraints
+    const paletteGroupConstraints = getPaletteGroupConstraints();
+
     const conversionResult = await invoke("run_conversion", {
       inputPath: state.inputImage,
       resizeMethod,
@@ -907,6 +942,7 @@ async function runConversion() {
       ditherMask: maskData || [],
       maskWidth: state.mask.width || 0,
       maskHeight: state.mask.height || 0,
+      paletteGroupConstraints,
     });
 
     const {
@@ -2020,6 +2056,350 @@ function convertTileToPalette(targetPaletteIndex) {
 
   state.tileEditor.contextMenuTileIndex = null;
 }
+
+// ===== Palette Groups Editor =====
+
+function calculateVirtualTileGrid(sourceWidth, sourceHeight, outputWidthTiles, outputHeightTiles) {
+  // Virtual tile size = source pixels per output tile (round up for full coverage)
+  const virtualTileWidth = Math.ceil(sourceWidth / outputWidthTiles);
+  const virtualTileHeight = Math.ceil(sourceHeight / outputHeightTiles);
+
+  return {
+    gridWidth: outputWidthTiles,
+    gridHeight: outputHeightTiles,
+    virtualTileWidth,
+    virtualTileHeight,
+  };
+}
+
+function initPaletteGroupsCanvas() {
+  const sourceImg = document.querySelector("#source-image");
+  const wrapper = document.querySelector("#input-canvas .viewer__image-wrapper");
+  if (!sourceImg || !wrapper) return;
+
+  // Get current output dimensions from sliders
+  const outputWidthTiles = parseInt(document.querySelector("#output-width-tiles")?.value || "32", 10);
+  const outputHeightTiles = parseInt(document.querySelector("#output-height-tiles")?.value || "32", 10);
+
+  const grid = calculateVirtualTileGrid(
+    sourceImg.naturalWidth,
+    sourceImg.naturalHeight,
+    outputWidthTiles,
+    outputHeightTiles
+  );
+
+  state.paletteGroups.gridWidth = grid.gridWidth;
+  state.paletteGroups.gridHeight = grid.gridHeight;
+  state.paletteGroups.virtualTileWidth = grid.virtualTileWidth;
+  state.paletteGroups.virtualTileHeight = grid.virtualTileHeight;
+
+  // Create or reuse canvas
+  let canvas = wrapper.querySelector("#palette-groups-canvas");
+  if (!canvas) {
+    canvas = document.createElement("canvas");
+    canvas.id = "palette-groups-canvas";
+    canvas.className = "palette-groups-canvas";
+    wrapper.appendChild(canvas);
+  }
+
+  canvas.width = sourceImg.naturalWidth;
+  canvas.height = sourceImg.naturalHeight;
+
+  state.paletteGroups.canvas = canvas;
+  state.paletteGroups.ctx = canvas.getContext("2d");
+
+  // Initialize or resize assignments array
+  const oldAssignments = state.paletteGroups.assignments;
+  const needsReset = !oldAssignments.length ||
+    oldAssignments.length !== grid.gridHeight ||
+    (oldAssignments[0] && oldAssignments[0].length !== grid.gridWidth);
+
+  if (needsReset) {
+    state.paletteGroups.assignments = Array(grid.gridHeight)
+      .fill(null)
+      .map(() => Array(grid.gridWidth).fill(null));
+    state.paletteGroups.history = [];
+    state.paletteGroups.historyIndex = -1;
+    savePaletteGroupsState();
+  }
+
+  // Setup event handlers
+  setupPaletteGroupsDrawing();
+
+  // Render overlay
+  renderPaletteGroupsOverlay();
+}
+
+function setupPaletteGroupsDrawing() {
+  const canvas = state.paletteGroups.canvas;
+  if (!canvas) return;
+
+  // Remove old listeners to avoid duplicates
+  canvas.removeEventListener("mousedown", handlePaletteGroupsMouseDown);
+  canvas.removeEventListener("mousemove", handlePaletteGroupsMouseMove);
+  canvas.removeEventListener("mouseup", handlePaletteGroupsMouseUp);
+  canvas.removeEventListener("mouseleave", handlePaletteGroupsMouseUp);
+
+  // Add new listeners
+  canvas.addEventListener("mousedown", handlePaletteGroupsMouseDown);
+  canvas.addEventListener("mousemove", handlePaletteGroupsMouseMove);
+  canvas.addEventListener("mouseup", handlePaletteGroupsMouseUp);
+  canvas.addEventListener("mouseleave", handlePaletteGroupsMouseUp);
+}
+
+function handlePaletteGroupsMouseDown(event) {
+  if (!state.paletteGroups.isEditing) return;
+  event.preventDefault();
+  state.paletteGroups.isDrawing = true;
+  applyPaletteGroupsBrush(event);
+}
+
+function handlePaletteGroupsMouseMove(event) {
+  if (!state.paletteGroups.isDrawing || !state.paletteGroups.isEditing) return;
+  applyPaletteGroupsBrush(event);
+}
+
+function handlePaletteGroupsMouseUp() {
+  if (state.paletteGroups.isDrawing) {
+    state.paletteGroups.isDrawing = false;
+    savePaletteGroupsState();
+  }
+}
+
+function applyPaletteGroupsBrush(event) {
+  const canvas = state.paletteGroups.canvas;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+
+  const x = (event.clientX - rect.left) * scaleX;
+  const y = (event.clientY - rect.top) * scaleY;
+
+  const { virtualTileWidth, virtualTileHeight, gridWidth, gridHeight, brushSize, tool, selectedGroup, assignments } = state.paletteGroups;
+
+  const tileX = Math.floor(x / virtualTileWidth);
+  const tileY = Math.floor(y / virtualTileHeight);
+
+  if (tileX < 0 || tileX >= gridWidth || tileY < 0 || tileY >= gridHeight) {
+    return;
+  }
+
+  const halfBrush = Math.floor(brushSize / 2);
+
+  // Apply brush to surrounding tiles
+  for (let dy = -halfBrush; dy <= halfBrush; dy++) {
+    for (let dx = -halfBrush; dx <= halfBrush; dx++) {
+      const tx = tileX + dx;
+      const ty = tileY + dy;
+
+      if (tx >= 0 && tx < gridWidth && ty >= 0 && ty < gridHeight) {
+        if (tool === "brush") {
+          assignments[ty][tx] = selectedGroup;
+        } else if (tool === "eraser") {
+          assignments[ty][tx] = null;
+        }
+      }
+    }
+  }
+
+  renderPaletteGroupsOverlay();
+}
+
+function renderPaletteGroupsOverlay() {
+  const ctx = state.paletteGroups.ctx;
+  const canvas = state.paletteGroups.canvas;
+  if (!ctx || !canvas) return;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const { gridWidth, gridHeight, virtualTileWidth, virtualTileHeight, assignments } = state.paletteGroups;
+
+  // Draw colored overlays for assigned tiles
+  for (let y = 0; y < gridHeight; y++) {
+    for (let x = 0; x < gridWidth; x++) {
+      const group = assignments[y]?.[x];
+      if (group !== null && group !== undefined) {
+        ctx.fillStyle = PALETTE_GROUP_COLORS[group];
+        ctx.fillRect(
+          x * virtualTileWidth,
+          y * virtualTileHeight,
+          virtualTileWidth,
+          virtualTileHeight
+        );
+      }
+    }
+  }
+
+  // Draw grid lines (subtle)
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+  ctx.lineWidth = 1;
+
+  for (let x = 0; x <= gridWidth; x++) {
+    ctx.beginPath();
+    ctx.moveTo(x * virtualTileWidth, 0);
+    ctx.lineTo(x * virtualTileWidth, canvas.height);
+    ctx.stroke();
+  }
+
+  for (let y = 0; y <= gridHeight; y++) {
+    ctx.beginPath();
+    ctx.moveTo(0, y * virtualTileHeight);
+    ctx.lineTo(canvas.width, y * virtualTileHeight);
+    ctx.stroke();
+  }
+}
+
+function togglePaletteGroupsEditing(enabled) {
+  state.paletteGroups.isEditing = enabled;
+
+  const canvas = document.querySelector("#palette-groups-canvas");
+  const tools = document.querySelector("#palette-groups-tools");
+  const toggleBtn = document.querySelector("#palette-groups-toggle");
+
+  if (canvas) {
+    canvas.classList.toggle("is-editing", enabled);
+    canvas.classList.toggle("is-visible", enabled);
+  }
+  if (tools) {
+    tools.classList.toggle("is-visible", enabled);
+  }
+  if (toggleBtn) {
+    toggleBtn.classList.toggle("is-active", enabled);
+  }
+
+  // Close mask editor if opening palette groups
+  if (enabled && state.mask.isEditing) {
+    toggleMaskEditing(false);
+  }
+}
+
+function savePaletteGroupsState() {
+  const { assignments, history, historyIndex, maxHistory } = state.paletteGroups;
+
+  // Remove redo states
+  if (historyIndex < history.length - 1) {
+    state.paletteGroups.history = history.slice(0, historyIndex + 1);
+  }
+
+  // Deep copy assignments
+  const copy = assignments.map((row) => [...row]);
+  state.paletteGroups.history.push(copy);
+
+  if (state.paletteGroups.history.length > maxHistory) {
+    state.paletteGroups.history.shift();
+  } else {
+    state.paletteGroups.historyIndex++;
+  }
+}
+
+function undoPaletteGroups() {
+  if (state.paletteGroups.historyIndex <= 0) return;
+
+  state.paletteGroups.historyIndex--;
+  const data = state.paletteGroups.history[state.paletteGroups.historyIndex];
+  state.paletteGroups.assignments = data.map((row) => [...row]);
+  renderPaletteGroupsOverlay();
+}
+
+function redoPaletteGroups() {
+  if (state.paletteGroups.historyIndex >= state.paletteGroups.history.length - 1) return;
+
+  state.paletteGroups.historyIndex++;
+  const data = state.paletteGroups.history[state.paletteGroups.historyIndex];
+  state.paletteGroups.assignments = data.map((row) => [...row]);
+  renderPaletteGroupsOverlay();
+}
+
+function clearPaletteGroups() {
+  const { gridWidth, gridHeight } = state.paletteGroups;
+  state.paletteGroups.assignments = Array(gridHeight)
+    .fill(null)
+    .map(() => Array(gridWidth).fill(null));
+  renderPaletteGroupsOverlay();
+  savePaletteGroupsState();
+}
+
+function initPaletteGroupsSelector() {
+  const container = document.querySelector("#palette-groups-selector");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  for (let i = 0; i < 16; i++) {
+    const btn = document.createElement("button");
+    btn.className = "pg-group-btn" + (i === 0 ? " is-selected" : "");
+    btn.dataset.group = i;
+    btn.textContent = i.toString(16).toUpperCase();
+    btn.title = `Groupe ${i}`;
+
+    btn.addEventListener("click", () => selectPaletteGroup(i));
+    container.appendChild(btn);
+  }
+}
+
+function selectPaletteGroup(group) {
+  state.paletteGroups.selectedGroup = group;
+
+  document.querySelectorAll(".pg-group-btn").forEach((btn) => {
+    btn.classList.toggle("is-selected", parseInt(btn.dataset.group, 10) === group);
+  });
+}
+
+function getPaletteGroupConstraints() {
+  const { gridWidth, gridHeight, assignments } = state.paletteGroups;
+
+  // If no assignments exist, return empty array (no constraints)
+  if (!assignments || !assignments.length) {
+    return [];
+  }
+
+  const constraints = [];
+  for (let y = 0; y < gridHeight; y++) {
+    for (let x = 0; x < gridWidth; x++) {
+      const group = assignments[y]?.[x];
+      constraints.push(group !== null && group !== undefined ? group : -1);
+    }
+  }
+
+  return constraints;
+}
+
+function setupPaletteGroupsEventListeners() {
+  // Toggle button
+  document.querySelector("#palette-groups-toggle")?.addEventListener("click", () => {
+    togglePaletteGroupsEditing(!state.paletteGroups.isEditing);
+  });
+
+  // Tool buttons
+  document.querySelector("#pg-brush")?.addEventListener("click", () => {
+    state.paletteGroups.tool = "brush";
+    document.querySelector("#pg-brush")?.classList.add("is-active");
+    document.querySelector("#pg-eraser")?.classList.remove("is-active");
+  });
+
+  document.querySelector("#pg-eraser")?.addEventListener("click", () => {
+    state.paletteGroups.tool = "eraser";
+    document.querySelector("#pg-eraser")?.classList.add("is-active");
+    document.querySelector("#pg-brush")?.classList.remove("is-active");
+  });
+
+  // Brush size
+  document.querySelector("#pg-brush-size")?.addEventListener("input", (e) => {
+    state.paletteGroups.brushSize = parseInt(e.target.value, 10);
+    const label = document.querySelector("#pg-brush-size-value");
+    if (label) label.textContent = e.target.value;
+  });
+
+  // Undo/Redo/Clear
+  document.querySelector("#pg-undo")?.addEventListener("click", undoPaletteGroups);
+  document.querySelector("#pg-redo")?.addEventListener("click", redoPaletteGroups);
+  document.querySelector("#pg-clear")?.addEventListener("click", clearPaletteGroups);
+
+  // Initialize group selector
+  initPaletteGroupsSelector();
+}
+
+// ===== End Palette Groups Editor =====
 
 // ===== Histogram =====
 
@@ -3227,6 +3607,33 @@ function bindActions() {
         setMaskTool(newTool);
       }
     }
+
+    // Palette groups editor shortcuts
+    if (state.paletteGroups.isEditing) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undoPaletteGroups();
+        return;
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redoPaletteGroups();
+        return;
+      } else if (e.key === "x" || e.key === "X") {
+        // Toggle between brush and eraser
+        e.preventDefault();
+        const newTool = state.paletteGroups.tool === "brush" ? "eraser" : "brush";
+        state.paletteGroups.tool = newTool;
+        document.querySelector("#pg-brush")?.classList.toggle("is-active", newTool === "brush");
+        document.querySelector("#pg-eraser")?.classList.toggle("is-active", newTool === "eraser");
+        return;
+      } else if (/^[0-9a-f]$/i.test(e.key)) {
+        // Quick group selection with 0-9, a-f
+        e.preventDefault();
+        const group = parseInt(e.key, 16);
+        selectPaletteGroup(group);
+        return;
+      }
+    }
   });
 
   // CRT mode change
@@ -3298,6 +3705,9 @@ window.addEventListener("DOMContentLoaded", () => {
   // Setup viewer resize and splitter
   setupViewerResize();
   setupViewerSplitter();
+
+  // Setup palette groups editor
+  setupPaletteGroupsEventListeners();
 
   // Setup auto-save for settings
   setupSettingsAutoSave();
