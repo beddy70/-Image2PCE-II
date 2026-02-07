@@ -2174,14 +2174,23 @@ fn save_html_report(
 
 /// Save project to disk - writes JSON project file
 #[tauri::command]
-async fn save_project(app: AppHandle, content: String) -> Result<Option<String>, String> {
+async fn save_project(app: AppHandle, content: String, default_path: Option<String>) -> Result<Option<String>, String> {
     use std::fs;
+    use std::path::Path;
+
+    // Determine default filename from provided path or use generic name
+    let default_name = default_path
+        .as_ref()
+        .and_then(|p| Path::new(p).file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("project.i2p")
+        .to_string();
 
     let file = app
         .dialog()
         .file()
         .add_filter("Image2PCE Project", &["i2p"])
-        .set_file_name("project.i2p")
+        .set_file_name(&default_name)
         .blocking_save_file();
 
     match file {

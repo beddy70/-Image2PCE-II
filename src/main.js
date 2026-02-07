@@ -94,6 +94,8 @@ const state = {
   },
   // Project state tracking
   projectDirty: false,
+  projectPath: null,        // Path of the loaded project file
+  isLoadingProject: false,  // Flag to suppress dirty marking during load
 };
 
 // Palette group colors for visualization
@@ -3262,6 +3264,9 @@ function setupSettingsAutoSave() {
 const PROJECT_VERSION = 1;
 
 function markProjectDirty() {
+  // Don't mark as dirty while loading a project
+  if (state.isLoadingProject) return;
+
   if (!state.projectDirty) {
     state.projectDirty = true;
     const saveBtn = document.querySelector("#save-project");
@@ -3334,10 +3339,14 @@ async function saveProject() {
       };
     }
 
-    // Save to file via Tauri
-    const result = await invoke("save_project", { content: JSON.stringify(project, null, 2) });
+    // Save to file via Tauri (use last loaded project path as default)
+    const result = await invoke("save_project", {
+      content: JSON.stringify(project, null, 2),
+      defaultPath: state.projectPath,
+    });
     if (result) {
       console.log("Project saved to:", result);
+      state.projectPath = result; // Update stored path
       clearProjectDirty();
     }
   } catch (error) {
@@ -3348,10 +3357,17 @@ async function saveProject() {
 
 async function loadProject() {
   try {
+    // Suppress dirty marking during project loading
+    state.isLoadingProject = true;
+
     const result = await invoke("load_project");
-    if (!result) return; // User cancelled
+    if (!result) {
+      state.isLoadingProject = false;
+      return; // User cancelled
+    }
 
     const [projectPath, content] = result;
+    state.projectPath = projectPath; // Store for later use when saving
     const project = JSON.parse(content);
 
     // Check version compatibility
@@ -3518,8 +3534,10 @@ async function loadProject() {
     }
 
     console.log("Project loaded from:", projectPath);
+    state.isLoadingProject = false;
     clearProjectDirty();
   } catch (error) {
+    state.isLoadingProject = false;
     console.error("Failed to load project:", error);
     alert("Erreur lors du chargement du projet: " + error);
   }
