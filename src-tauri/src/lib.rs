@@ -2172,6 +2172,57 @@ fn save_html_report(
     Ok(())
 }
 
+/// Save project to disk - writes JSON project file
+#[tauri::command]
+async fn save_project(app: AppHandle, content: String) -> Result<Option<String>, String> {
+    use std::fs;
+
+    let file = app
+        .dialog()
+        .file()
+        .add_filter("Image2PCE Project", &["i2p"])
+        .set_file_name("project.i2p")
+        .blocking_save_file();
+
+    match file {
+        Some(path) => {
+            let path_str = path.into_path()
+                .map_err(|e| format!("Invalid path: {:?}", e))?
+                .to_string_lossy()
+                .to_string();
+            fs::write(&path_str, &content)
+                .map_err(|e| format!("Failed to write project file: {}", e))?;
+            Ok(Some(path_str))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Load project from disk - reads JSON project file
+#[tauri::command]
+async fn load_project(app: AppHandle) -> Result<Option<(String, String)>, String> {
+    use std::fs;
+
+    let file = app
+        .dialog()
+        .file()
+        .add_filter("Image2PCE Project", &["i2p"])
+        .blocking_pick_file();
+
+    match file {
+        Some(path) => {
+            let path_str = path.into_path()
+                .map_err(|e| format!("Invalid path: {:?}", e))?
+                .to_string_lossy()
+                .to_string();
+            let content = fs::read_to_string(&path_str)
+                .map_err(|e| format!("Failed to read project file: {}", e))?;
+            Ok(Some((path_str, content)))
+        }
+        None => Ok(None),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -2179,7 +2230,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![open_image, run_conversion, export_plain_text, export_binaries, save_binaries_to_disk, save_html_report])
+        .invoke_handler(tauri::generate_handler![open_image, run_conversion, export_plain_text, export_binaries, save_binaries_to_disk, save_html_report, save_project, load_project])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -28,12 +28,13 @@ Image2PCE II est un outil de conversion d'images pour la console PC-Engine / Tur
 6. [Éditeur de tuiles](#éditeur-de-tuiles)
 7. [Palettes générées](#palettes-générées)
 8. [Workflow recommandé](#workflow-recommandé)
-9. [Formats d'export](#formats-dexport)
-   - [Binaires](#binaires-répertoire-avec-bat-tiles-pal)
-   - [Assembleur](#assembleur-asm)
-10. [Format technique PC-Engine](#format-technique-pc-engine)
-11. [Raccourcis et astuces](#raccourcis-et-astuces)
-12. [Dépannage](#dépannage)
+9. [Fichiers projet](#fichiers-projet-i2p)
+10. [Formats d'export](#formats-dexport)
+    - [Binaires](#binaires-répertoire-avec-bat-tiles-pal)
+    - [Assembleur](#assembleur-asm)
+11. [Format technique PC-Engine](#format-technique-pc-engine)
+12. [Raccourcis et astuces](#raccourcis-et-astuces)
+13. [Dépannage](#dépannage)
 
 ---
 
@@ -44,7 +45,8 @@ Image2PCE II est un outil de conversion d'images pour la console PC-Engine / Tur
 | Bouton | Description |
 |--------|-------------|
 | **Open image** | Ouvrir une image source (PNG, JPEG, GIF, WebP, BMP) |
-| **Save as image** | Sauvegarder l'aperçu converti en PNG |
+| **Load project** | Charger un projet sauvegardé (`.i2p`) |
+| **Save project** | Sauvegarder le projet complet (image, réglages, masque, groupes) |
 | **Save binaries** | Crée un répertoire et exporte `.bat`, `.tiles`, `.pal` |
 | **Save .asm** | Exporter en format assembleur commenté |
 | **VRAM** | Adresse de base VRAM pour les tuiles (défaut: `$4000`) |
@@ -337,7 +339,34 @@ Après conversion, les 16 palettes sont affichées avec leur utilisation :
 3. **Modifier** la courbe RGB333 si nécessaire
 4. **Convertir** en cliquant sur le bouton bleu
 5. **Vérifier** le résultat avec la simulation CRT
-6. **Exporter** dans le format souhaité
+6. **Sauvegarder** le projet pour reprendre plus tard (optionnel)
+7. **Exporter** dans le format souhaité
+
+---
+
+## Fichiers projet (`.i2p`)
+
+Les fichiers projet permettent de sauvegarder et reprendre votre travail ultérieurement. Un fichier `.i2p` contient :
+
+- **Chemin de l'image source** : L'image originale sera rechargée automatiquement
+- **Tous les réglages de conversion** : Redimensionnement, palettes, dithering, etc.
+- **La courbe RGB333** : Points de contrôle personnalisés
+- **Le masque de dithering** : Zones avec/sans tramage
+- **Les groupes de palettes** : Assignations manuelles des tuiles
+
+### Sauvegarder un projet
+
+1. Cliquez sur **Save project** dans la barre supérieure
+2. Choisissez l'emplacement et le nom du fichier
+3. Le fichier `.i2p` est créé avec toutes les données
+
+### Charger un projet
+
+1. Cliquez sur **Load project** dans la barre supérieure
+2. Sélectionnez un fichier `.i2p`
+3. L'image source, les réglages, le masque et les groupes sont restaurés
+
+**Note** : Si l'image source a été déplacée ou supprimée, seuls les réglages seront restaurés.
 
 ---
 

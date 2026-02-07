@@ -81,6 +81,23 @@ body {
   border: none;
 }
 
+.btn--secondary {
+  background: linear-gradient(135deg, #2a3142, #3d4654);
+  border: 1px solid #4f5a6a;
+}
+
+.btn--secondary:hover {
+  border-color: #6a8aff;
+  background: linear-gradient(135deg, #3d4654, #4f5a6a);
+}
+
+.actions__separator {
+  width: 1px;
+  background: #2a3142;
+  margin: 0 4px;
+  align-self: stretch;
+}
+
 .settings {
   display: flex;
   flex-wrap: wrap;

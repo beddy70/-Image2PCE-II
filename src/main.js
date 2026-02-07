@@ -3164,6 +3164,288 @@ function setupSettingsAutoSave() {
 
 // ===== End Settings Persistence =====
 
+// ===== Project Save/Load =====
+
+const PROJECT_VERSION = 1;
+
+async function saveProject() {
+  try {
+    // Collect all project data
+    const project = {
+      version: PROJECT_VERSION,
+      // Source image path (state.inputImage is the file path string)
+      sourceImagePath: typeof state.inputImage === "string" ? state.inputImage : null,
+      // Conversion settings
+      settings: {
+        resizeMethod: document.querySelector("#resize-method")?.value,
+        paletteCount: document.querySelector("#palette-count")?.value,
+        color0Mode: document.querySelector("#color0-mode")?.value,
+        ditherMode: document.querySelector("#dither-mode")?.value,
+        backgroundColor: document.querySelector("#background-color")?.value,
+        transparency: document.querySelector("#transparency")?.checked,
+        keepRatio: document.querySelector("#keep-ratio")?.checked,
+        ditherMask: document.querySelector("#dither-mask")?.checked,
+        vramAddress: document.querySelector("#vram-address")?.value,
+        outputWidthTiles: document.querySelector("#output-width-tiles")?.value,
+        outputHeightTiles: document.querySelector("#output-height-tiles")?.value,
+        batSize: document.querySelector("#bat-size")?.value,
+        offsetX: document.querySelector("#offset-x")?.value,
+        offsetY: document.querySelector("#offset-y")?.value,
+        batBigEndian: document.querySelector("#bat-big-endian")?.checked,
+        palBigEndian: document.querySelector("#pal-big-endian")?.checked,
+        tilesBigEndian: document.querySelector("#tiles-big-endian")?.checked,
+      },
+      // Curve points
+      curvePoints: state.curvePoints,
+      // Fixed color 0
+      fixedColor0: state.fixedColor0,
+      // Dithering mask (as base64 data URL)
+      ditherMask: null,
+      // Palette group assignments
+      paletteGroups: null,
+    };
+
+    // Save dithering mask if it exists
+    if (state.mask.canvas && state.mask.width > 0 && state.mask.height > 0) {
+      project.ditherMask = {
+        width: state.mask.width,
+        height: state.mask.height,
+        dataUrl: state.mask.canvas.toDataURL("image/png"),
+      };
+    }
+
+    // Save palette group assignments if they exist
+    if (state.paletteGroups.assignments.length > 0) {
+      project.paletteGroups = {
+        gridWidth: state.paletteGroups.gridWidth,
+        gridHeight: state.paletteGroups.gridHeight,
+        assignments: state.paletteGroups.assignments,
+      };
+    }
+
+    // Save to file via Tauri
+    const result = await invoke("save_project", { content: JSON.stringify(project, null, 2) });
+    if (result) {
+      console.log("Project saved to:", result);
+    }
+  } catch (error) {
+    console.error("Failed to save project:", error);
+    alert("Erreur lors de la sauvegarde du projet: " + error);
+  }
+}
+
+async function loadProject() {
+  try {
+    const result = await invoke("load_project");
+    if (!result) return; // User cancelled
+
+    const [projectPath, content] = result;
+    const project = JSON.parse(content);
+
+    // Check version compatibility
+    if (!project.version || project.version > PROJECT_VERSION) {
+      alert("Ce fichier projet est incompatible avec cette version d'Image2PCE II.");
+      return;
+    }
+
+    // Restore conversion settings
+    const s = project.settings;
+    if (s) {
+      if (s.resizeMethod) {
+        const el = document.querySelector("#resize-method");
+        if (el) el.value = s.resizeMethod;
+      }
+      if (s.paletteCount) {
+        const el = document.querySelector("#palette-count");
+        if (el) el.value = s.paletteCount;
+      }
+      if (s.color0Mode) {
+        const el = document.querySelector("#color0-mode");
+        if (el) el.value = s.color0Mode;
+      }
+      if (s.ditherMode) {
+        const el = document.querySelector("#dither-mode");
+        if (el) el.value = s.ditherMode;
+      }
+      if (s.backgroundColor) {
+        const el = document.querySelector("#background-color");
+        if (el) el.value = s.backgroundColor;
+      }
+      if (s.transparency !== undefined) {
+        const el = document.querySelector("#transparency");
+        if (el) el.checked = s.transparency;
+      }
+      if (s.keepRatio !== undefined) {
+        const el = document.querySelector("#keep-ratio");
+        if (el) el.checked = s.keepRatio;
+      }
+      if (s.ditherMask !== undefined) {
+        const el = document.querySelector("#dither-mask");
+        if (el) el.checked = s.ditherMask;
+      }
+      if (s.vramAddress) {
+        const el = document.querySelector("#vram-address");
+        if (el) el.value = s.vramAddress;
+      }
+      if (s.batSize) {
+        const el = document.querySelector("#bat-size");
+        if (el) el.value = s.batSize;
+      }
+      // Update constraints before setting width/height
+      updateSizeConstraints();
+      if (s.outputWidthTiles) {
+        const el = document.querySelector("#output-width-tiles");
+        if (el) {
+          el.value = s.outputWidthTiles;
+          document.querySelector("#output-width-value").textContent = `${s.outputWidthTiles} (${s.outputWidthTiles * 8} px)`;
+        }
+      }
+      if (s.outputHeightTiles) {
+        const el = document.querySelector("#output-height-tiles");
+        if (el) {
+          el.value = s.outputHeightTiles;
+          document.querySelector("#output-height-value").textContent = `${s.outputHeightTiles} (${s.outputHeightTiles * 8} px)`;
+        }
+      }
+      if (s.offsetX !== undefined) {
+        const el = document.querySelector("#offset-x");
+        if (el) el.value = s.offsetX;
+      }
+      if (s.offsetY !== undefined) {
+        const el = document.querySelector("#offset-y");
+        if (el) el.value = s.offsetY;
+      }
+      if (s.batBigEndian !== undefined) {
+        const el = document.querySelector("#bat-big-endian");
+        if (el) el.checked = s.batBigEndian;
+      }
+      if (s.palBigEndian !== undefined) {
+        const el = document.querySelector("#pal-big-endian");
+        if (el) el.checked = s.palBigEndian;
+      }
+      if (s.tilesBigEndian !== undefined) {
+        const el = document.querySelector("#tiles-big-endian");
+        if (el) el.checked = s.tilesBigEndian;
+      }
+    }
+
+    // Restore curve points
+    if (project.curvePoints && Array.isArray(project.curvePoints)) {
+      state.curvePoints = project.curvePoints;
+      const curveCtx = document.querySelector("#curve-canvas")?.getContext("2d");
+      if (curveCtx) {
+        drawCurve(curveCtx);
+      }
+    }
+
+    // Restore fixed color 0
+    if (project.fixedColor0) {
+      state.fixedColor0 = project.fixedColor0;
+      updateColor0Preview();
+    }
+
+    // Load source image if available
+    let imageLoaded = false;
+    if (project.sourceImagePath) {
+      try {
+        // Extract the actual file path from the asset URL if needed
+        let imagePath = project.sourceImagePath;
+        if (imagePath.startsWith("asset://")) {
+          // Extract path from asset URL (asset://localhost/path)
+          const url = new URL(imagePath);
+          imagePath = decodeURIComponent(url.pathname);
+        }
+        await loadImageFromPath(imagePath);
+        imageLoaded = true;
+      } catch (e) {
+        console.warn("Could not load source image from project:", e);
+      }
+    }
+
+    // Restore dithering mask (after image is loaded to ensure canvas exists)
+    if (project.ditherMask && project.ditherMask.dataUrl && imageLoaded) {
+      const maskImg = new Image();
+      maskImg.onload = () => {
+        // The mask canvas should exist after loadImageFromPath
+        if (state.mask.canvas && state.mask.ctx) {
+          // Clear existing content and history
+          state.mask.history = [];
+          state.mask.historyIndex = -1;
+          // Resize canvas to match saved mask dimensions
+          state.mask.canvas.width = project.ditherMask.width;
+          state.mask.canvas.height = project.ditherMask.height;
+          state.mask.width = project.ditherMask.width;
+          state.mask.height = project.ditherMask.height;
+          // Draw the loaded mask
+          state.mask.ctx.drawImage(maskImg, 0, 0);
+          // Save initial state for undo
+          saveMaskState();
+        }
+      };
+      maskImg.src = project.ditherMask.dataUrl;
+    }
+
+    // Restore palette group assignments (after image is loaded to ensure canvas exists)
+    if (project.paletteGroups && project.paletteGroups.assignments && imageLoaded) {
+      // Clear existing history
+      state.paletteGroups.history = [];
+      state.paletteGroups.historyIndex = -1;
+      // Restore assignments
+      state.paletteGroups.gridWidth = project.paletteGroups.gridWidth;
+      state.paletteGroups.gridHeight = project.paletteGroups.gridHeight;
+      state.paletteGroups.assignments = project.paletteGroups.assignments;
+      // Update canvas dimensions and re-render
+      if (state.paletteGroups.canvas) {
+        state.paletteGroups.virtualTileWidth = state.mask.width / state.paletteGroups.gridWidth;
+        state.paletteGroups.virtualTileHeight = state.mask.height / state.paletteGroups.gridHeight;
+        state.paletteGroups.canvas.width = state.mask.width;
+        state.paletteGroups.canvas.height = state.mask.height;
+        renderPaletteGroupsOverlay();
+        savePaletteGroupsState();
+      }
+    }
+
+    console.log("Project loaded from:", projectPath);
+  } catch (error) {
+    console.error("Failed to load project:", error);
+    alert("Erreur lors du chargement du projet: " + error);
+  }
+}
+
+// Helper function to load image from path (similar to openImage)
+async function loadImageFromPath(imagePath) {
+  // Close editors if open
+  toggleMaskEditing(false);
+  togglePaletteGroupsEditing(false);
+
+  state.inputImage = imagePath;
+  const inputMeta = document.querySelector("#input-meta");
+  inputMeta.textContent = imagePath;
+  const inputCanvas = document.querySelector("#input-canvas");
+  const fileUrl = convertFileSrc(imagePath);
+
+  inputCanvas.innerHTML = `
+    <div class="viewer__stage">
+      <div class="viewer__image-wrapper">
+        <img src="${fileUrl}" alt="source" class="viewer__image" id="source-image" draggable="false" />
+        <canvas id="mask-canvas" class="mask-canvas"></canvas>
+      </div>
+    </div>
+    <div id="brush-cursor" class="brush-cursor"></div>
+  `;
+
+  return new Promise((resolve) => {
+    const sourceImg = document.querySelector("#source-image");
+    sourceImg.onload = () => {
+      initMaskCanvas(sourceImg.naturalWidth, sourceImg.naturalHeight);
+      initPaletteGroupsCanvas();
+      resolve(sourceImg);
+    };
+  });
+}
+
+// ===== End Project Save/Load =====
+
 // ===== CRT Simulation =====
 
 function applyCrtMode(mode) {
@@ -3439,6 +3721,8 @@ function applyViewerSplit(leftPercent) {
 
 function bindActions() {
   document.querySelector("#open-image").addEventListener("click", openImage);
+  document.querySelector("#load-project").addEventListener("click", loadProject);
+  document.querySelector("#save-project").addEventListener("click", saveProject);
   document.querySelector("#run-conversion").addEventListener("click", runConversion);
   document.querySelector("#zoom-input").addEventListener("input", () => applyZoom("input"));
   document.querySelector("#zoom-output").addEventListener("input", () => applyZoom("output"));
