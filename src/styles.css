@@ -91,6 +91,22 @@ body {
   background: linear-gradient(135deg, #3d4654, #4f5a6a);
 }
 
+.btn--dirty {
+  background: linear-gradient(135deg, #8B4513, #CD853F);
+  border-color: #DAA520;
+  animation: pulse-dirty 2s ease-in-out infinite;
+}
+
+.btn--dirty:hover {
+  background: linear-gradient(135deg, #A0522D, #DEB887);
+  border-color: #FFD700;
+}
+
+@keyframes pulse-dirty {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+
 .actions__separator {
   width: 1px;
   background: #2a3142;

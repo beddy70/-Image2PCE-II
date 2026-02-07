@@ -368,6 +368,23 @@ Les fichiers projet permettent de sauvegarder et reprendre votre travail ultéri
 
 **Note** : Si l'image source a été déplacée ou supprimée, seuls les réglages seront restaurés.
 
+### Raccourcis clavier
+
+| Raccourci | Action |
+|-----------|--------|
+| **Ctrl+S** / **Cmd+S** | Sauvegarder le projet |
+| **Ctrl+Shift+O** / **Cmd+Shift+O** | Charger un projet |
+
+### Indicateur de modifications
+
+Le bouton **Save project** change de couleur (orange pulsant) lorsque le projet contient des modifications non sauvegardées :
+- Modification des réglages de conversion
+- Chargement d'une nouvelle image
+- Édition du masque de dithering
+- Assignation de groupes de palettes
+
+Le bouton retrouve sa couleur normale après une sauvegarde réussie.
+
 ---
 
 ## Formats d'export

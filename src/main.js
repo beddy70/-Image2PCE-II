@@ -92,6 +92,8 @@ const state = {
     historyIndex: -1,
     maxHistory: 50,
   },
+  // Project state tracking
+  projectDirty: false,
 };
 
 // Palette group colors for visualization
@@ -119,6 +121,9 @@ async function openImage() {
   if (!selected) {
     return;
   }
+
+  // Mark project as dirty when a new image is loaded
+  markProjectDirty();
 
   // Close mask editor if open
   toggleMaskEditing(false);
@@ -234,6 +239,9 @@ function initMaskCanvas(width, height) {
 function saveMaskState() {
   const ctx = state.mask.ctx;
   if (!ctx || !state.mask.width || !state.mask.height) return;
+
+  // Mark project as dirty when mask changes
+  markProjectDirty();
 
   // Remove any redo states
   if (state.mask.historyIndex < state.mask.history.length - 1) {
@@ -2282,6 +2290,9 @@ function togglePaletteGroupsEditing(enabled) {
 function savePaletteGroupsState() {
   const { assignments, history, historyIndex, maxHistory } = state.paletteGroups;
 
+  // Mark project as dirty when palette groups change
+  markProjectDirty();
+
   // Remove redo states
   if (historyIndex < history.length - 1) {
     state.paletteGroups.history = history.slice(0, historyIndex + 1);
@@ -3045,6 +3056,9 @@ async function exportHtmlReport() {
 const SETTINGS_KEY = "image2pce-settings";
 
 function saveSettings() {
+  // Mark project as dirty when settings change
+  markProjectDirty();
+
   const viewer = document.querySelector(".viewer");
   const viewerHeight = viewer ? parseInt(getComputedStyle(viewer).getPropertyValue("--viewer-height")) || 500 : 500;
   const viewerSplit = viewer ? parseFloat(getComputedStyle(viewer).getPropertyValue("--viewer-split")) || 50 : 50;
@@ -3247,6 +3261,24 @@ function setupSettingsAutoSave() {
 
 const PROJECT_VERSION = 1;
 
+function markProjectDirty() {
+  if (!state.projectDirty) {
+    state.projectDirty = true;
+    const saveBtn = document.querySelector("#save-project");
+    if (saveBtn) {
+      saveBtn.classList.add("btn--dirty");
+    }
+  }
+}
+
+function clearProjectDirty() {
+  state.projectDirty = false;
+  const saveBtn = document.querySelector("#save-project");
+  if (saveBtn) {
+    saveBtn.classList.remove("btn--dirty");
+  }
+}
+
 async function saveProject() {
   try {
     // Collect all project data
@@ -3306,6 +3338,7 @@ async function saveProject() {
     const result = await invoke("save_project", { content: JSON.stringify(project, null, 2) });
     if (result) {
       console.log("Project saved to:", result);
+      clearProjectDirty();
     }
   } catch (error) {
     console.error("Failed to save project:", error);
@@ -3485,6 +3518,7 @@ async function loadProject() {
     }
 
     console.log("Project loaded from:", projectPath);
+    clearProjectDirty();
   } catch (error) {
     console.error("Failed to load project:", error);
     alert("Erreur lors du chargement du projet: " + error);
@@ -3942,6 +3976,25 @@ function bindActions() {
 
   // Keyboard shortcuts for mask editing and tile editing
   document.addEventListener("keydown", (e) => {
+    // Ignore shortcuts when typing in input fields
+    const isInputFocused = document.activeElement?.tagName === "INPUT" ||
+                           document.activeElement?.tagName === "TEXTAREA" ||
+                           document.activeElement?.tagName === "SELECT";
+
+    // Project shortcuts (Ctrl+S = Save, Ctrl+Shift+O = Load)
+    if (!isInputFocused && (e.ctrlKey || e.metaKey)) {
+      if (e.key === "s" || e.key === "S") {
+        e.preventDefault();
+        saveProject();
+        return;
+      }
+      if (e.shiftKey && (e.key === "o" || e.key === "O")) {
+        e.preventDefault();
+        loadProject();
+        return;
+      }
+    }
+
     // Tile editor shortcuts (priority over mask editor when active)
     if (state.tileEditor.isEditing) {
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {

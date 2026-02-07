@@ -218,6 +218,12 @@ cargo tauri dev
 
 ## Raccourcis clavier
 
+### Projet
+| Raccourci | Action |
+|-----------|--------|
+| `Ctrl/Cmd + S` | Sauvegarder le projet |
+| `Ctrl/Cmd + Shift + O` | Charger un projet |
+
 ### Éditeur de masque (dithering)
 | Raccourci | Action |
 |-----------|--------|
