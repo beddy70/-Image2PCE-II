@@ -383,7 +383,7 @@ Le bouton **Save project** change de couleur (orange pulsant) lorsque le projet 
 - Édition du masque de dithering
 - Assignation de groupes de palettes
 
-Le bouton retrouve sa couleur normale après une sauvegarde réussie.
+Le bouton retrouve sa couleur normale après une sauvegarde réussie ou le chargement d'un projet.
 
 ---
 
