@@ -2359,11 +2359,90 @@ function getPaletteGroupConstraints() {
     return [];
   }
 
+  // Get output dimensions in tiles
+  const outputWidthTiles = parseInt(document.querySelector("#output-width-tiles").value, 10);
+  const outputHeightTiles = parseInt(document.querySelector("#output-height-tiles").value, 10);
+  const keepRatio = document.querySelector("#keep-ratio")?.checked || false;
+
+  // If dimensions match and no keep ratio, use direct mapping
+  if (!keepRatio && gridWidth === outputWidthTiles && gridHeight === outputHeightTiles) {
+    const constraints = [];
+    for (let y = 0; y < gridHeight; y++) {
+      for (let x = 0; x < gridWidth; x++) {
+        const group = assignments[y]?.[x];
+        constraints.push(group !== null && group !== undefined ? group : -1);
+      }
+    }
+    return constraints;
+  }
+
+  // Get source image dimensions
+  const sourceImg = document.querySelector("#source-image");
+  if (!sourceImg) {
+    return [];
+  }
+  const srcWidth = sourceImg.naturalWidth;
+  const srcHeight = sourceImg.naturalHeight;
+
+  // Target dimensions in pixels
+  const dstWidth = outputWidthTiles * 8;
+  const dstHeight = outputHeightTiles * 8;
+
+  // Calculate scaled dimensions (same logic as Rust resize_to_target)
+  let scaledWidth, scaledHeight, offsetX, offsetY;
+
+  if (!keepRatio) {
+    // Simple stretch to fill
+    scaledWidth = dstWidth;
+    scaledHeight = dstHeight;
+    offsetX = 0;
+    offsetY = 0;
+  } else {
+    // Calculate scaled dimensions keeping aspect ratio
+    const srcRatio = srcWidth / srcHeight;
+    const dstRatio = dstWidth / dstHeight;
+
+    if (srcRatio > dstRatio) {
+      // Source is wider - fit to width
+      scaledWidth = dstWidth;
+      scaledHeight = Math.min(Math.round(dstWidth / srcRatio), dstHeight);
+    } else {
+      // Source is taller - fit to height
+      scaledHeight = dstHeight;
+      scaledWidth = Math.min(Math.round(dstHeight * srcRatio), dstWidth);
+    }
+
+    // Calculate offsets to center
+    offsetX = Math.floor((dstWidth - scaledWidth) / 2);
+    offsetY = Math.floor((dstHeight - scaledHeight) / 2);
+  }
+
+  // Convert pixel offsets to tile offsets
+  const tileOffsetX = Math.floor(offsetX / 8);
+  const tileOffsetY = Math.floor(offsetY / 8);
+  const scaledWidthTiles = Math.ceil(scaledWidth / 8);
+  const scaledHeightTiles = Math.ceil(scaledHeight / 8);
+
+  // Create constraints array for OUTPUT tiles
   const constraints = [];
-  for (let y = 0; y < gridHeight; y++) {
-    for (let x = 0; x < gridWidth; x++) {
-      const group = assignments[y]?.[x];
-      constraints.push(group !== null && group !== undefined ? group : -1);
+  for (let outY = 0; outY < outputHeightTiles; outY++) {
+    for (let outX = 0; outX < outputWidthTiles; outX++) {
+      // Check if this output tile is within the actual image area
+      if (outX >= tileOffsetX && outX < tileOffsetX + scaledWidthTiles &&
+          outY >= tileOffsetY && outY < tileOffsetY + scaledHeightTiles) {
+        // Map output tile to source virtual tile
+        const localX = outX - tileOffsetX;
+        const localY = outY - tileOffsetY;
+        const srcX = Math.floor(localX * gridWidth / scaledWidthTiles);
+        const srcY = Math.floor(localY * gridHeight / scaledHeightTiles);
+
+        // Get constraint from source grid
+        const group = assignments[srcY]?.[srcX];
+        constraints.push(group !== null && group !== undefined ? group : -1);
+      } else {
+        // Tile is outside image area (padding) - no constraint
+        constraints.push(-1);
+      }
     }
   }
 
