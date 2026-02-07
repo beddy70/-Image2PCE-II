@@ -1279,9 +1279,9 @@ fn export_plain_text(
         } else {
             tile_palette_map.get(tile_idx).copied().unwrap_or(0) as u16
         };
-        // Tile address = base + (unique_tile_index * 32)
-        // BAT address field = (tile_address >> 4) & 0x0FFF
-        let tile_address = vram_base_address + (unique_idx as u32 * 32);
+        // VRAM is word-addressed (16-bit), each tile = 16 words (32 bytes)
+        // BAT address field = (tile_word_address >> 4) & 0x0FFF
+        let tile_address = vram_base_address + (unique_idx as u32 * 16);
         let address_field = ((tile_address >> 4) & 0x0FFF) as u16;
         let bat_word = (palette_idx << 12) | address_field;
 
@@ -1614,7 +1614,8 @@ fn export_binaries(
         } else {
             tile_palette_map.get(tile_idx).copied().unwrap_or(0) as u16
         };
-        let tile_address = vram_base_address + (unique_idx as u32 * 32);
+        // VRAM is word-addressed (16-bit), each tile = 16 words (32 bytes)
+        let tile_address = vram_base_address + (unique_idx as u32 * 16);
         let address_field = ((tile_address >> 4) & 0x0FFF) as u16;
         let bat_word = (palette_idx << 12) | address_field;
 
@@ -1756,6 +1757,294 @@ fn save_binaries_to_disk(
     Ok(())
 }
 
+/// Save HTML report to disk - creates a directory with HTML file and image
+#[tauri::command]
+fn save_html_report(
+    base_path: String,
+    image_data: Vec<u8>,  // PNG image as bytes
+    palettes: Vec<Vec<String>>,
+    tile_palette_map: Vec<usize>,
+    tile_count: usize,
+    unique_tile_count: usize,
+    vram_base_address: u32,
+    settings: std::collections::HashMap<String, String>,
+) -> Result<(), String> {
+    use std::fs;
+    use std::path::Path;
+
+    let base = Path::new(&base_path);
+    let dir_name = base.file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid path")?;
+    let parent = base.parent().ok_or("Invalid parent directory")?;
+    let dir_path = parent.join(dir_name);
+
+    // Create the directory
+    fs::create_dir_all(&dir_path)
+        .map_err(|e| format!("Failed to create directory: {}", e))?;
+
+    // Save the image
+    let image_path = dir_path.join(format!("{}.png", dir_name));
+    fs::write(&image_path, &image_data)
+        .map_err(|e| format!("Failed to write image: {}", e))?;
+
+    // Count tiles per palette
+    let mut palette_usage: Vec<usize> = vec![0; 16];
+    for &pal_idx in &tile_palette_map {
+        if pal_idx < 16 {
+            palette_usage[pal_idx] += 1;
+        }
+    }
+
+    // Calculate VRAM usage
+    let bat_size = tile_count * 2;
+    let tiles_size = unique_tile_count * 32;
+    let pal_size = 512;
+    let total_vram = bat_size + tiles_size + pal_size;
+
+    // Generate palette HTML
+    let mut palettes_html = String::new();
+    for (pal_idx, palette) in palettes.iter().enumerate() {
+        if palette_usage.get(pal_idx).copied().unwrap_or(0) == 0 && pal_idx > 0 {
+            continue; // Skip unused palettes (except palette 0)
+        }
+        palettes_html.push_str(&format!(
+            r#"<div class="palette-card">
+                <div class="palette-header">Palette {} <span class="usage">({} tuiles)</span></div>
+                <div class="palette-colors">"#,
+            pal_idx, palette_usage.get(pal_idx).copied().unwrap_or(0)
+        ));
+        for (col_idx, color) in palette.iter().enumerate() {
+            palettes_html.push_str(&format!(
+                "<div class=\"color-swatch\" style=\"background-color: {};\" title=\"#{}: {}\"></div>",
+                color, col_idx, color
+            ));
+        }
+        palettes_html.push_str("</div></div>\n");
+    }
+
+    // Build settings HTML
+    let mut settings_html = String::new();
+    let setting_order = ["resize", "palettes", "dithering", "transparency", "keepRatio", "width", "height"];
+    for key in &setting_order {
+        if let Some(value) = settings.get(*key) {
+            let label = match *key {
+                "resize" => "Redimensionnement",
+                "palettes" => "Nombre de palettes",
+                "dithering" => "Dithering",
+                "transparency" => "Transparence",
+                "keepRatio" => "Conserver ratio",
+                "width" => "Largeur (tuiles)",
+                "height" => "Hauteur (tuiles)",
+                _ => *key,
+            };
+            settings_html.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td></tr>\n",
+                label, value
+            ));
+        }
+    }
+
+    // Generate the HTML report
+    let html = format!(r#"<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image2PCE II - Rapport: {name}</title>
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f1116;
+            color: #e7e9ee;
+            padding: 24px;
+            line-height: 1.6;
+        }}
+        .container {{ max-width: 1200px; margin: 0 auto; }}
+        h1 {{ font-size: 24px; margin-bottom: 8px; }}
+        h2 {{ font-size: 18px; margin: 24px 0 12px; color: #aab3c2; }}
+        .subtitle {{ color: #9aa4b2; font-size: 14px; margin-bottom: 24px; }}
+        .grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }}
+        @media (max-width: 800px) {{ .grid {{ grid-template-columns: 1fr; }} }}
+        .card {{
+            background: #151924;
+            border: 1px solid #1f2432;
+            border-radius: 12px;
+            padding: 16px;
+        }}
+        .image-preview {{
+            text-align: center;
+            background: #0d1016;
+            border-radius: 8px;
+            padding: 16px;
+        }}
+        .image-preview img {{
+            max-width: 100%;
+            image-rendering: pixelated;
+            border: 1px solid #2a3142;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+        td {{
+            padding: 8px 12px;
+            border-bottom: 1px solid #2a3142;
+        }}
+        td:first-child {{ color: #aab3c2; }}
+        td:last-child {{ text-align: right; font-family: monospace; }}
+        .palettes-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 12px;
+        }}
+        .palette-card {{
+            background: #0d1016;
+            border: 1px solid #2a3142;
+            border-radius: 8px;
+            padding: 10px;
+        }}
+        .palette-header {{
+            font-size: 12px;
+            color: #9aa4b2;
+            margin-bottom: 8px;
+        }}
+        .palette-header .usage {{ color: #6a7a9a; }}
+        .palette-colors {{
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 3px;
+        }}
+        .color-swatch {{
+            aspect-ratio: 1;
+            border-radius: 3px;
+            border: 1px solid #2a3142;
+        }}
+        .stat-value {{ font-size: 24px; font-weight: 600; color: #4f76ff; }}
+        .stat-label {{ font-size: 12px; color: #9aa4b2; }}
+        .stats-grid {{
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            text-align: center;
+        }}
+        .vram-bar {{
+            height: 8px;
+            background: #2a3142;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }}
+        .vram-fill {{
+            height: 100%;
+            background: linear-gradient(90deg, #4f76ff, #6a4bff);
+            border-radius: 4px;
+        }}
+        .warning {{ color: #ff6b6b; }}
+        footer {{
+            text-align: center;
+            margin-top: 32px;
+            padding-top: 16px;
+            border-top: 1px solid #2a3142;
+            color: #6a7a9a;
+            font-size: 12px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Image2PCE II - Rapport de conversion</h1>
+        <p class="subtitle">{name}</p>
+
+        <div class="grid">
+            <div class="card">
+                <h2>Image convertie</h2>
+                <div class="image-preview">
+                    <img src="{name}.png" alt="Image convertie">
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Statistiques</h2>
+                <div class="stats-grid">
+                    <div>
+                        <div class="stat-value">{tile_count}</div>
+                        <div class="stat-label">Tuiles totales</div>
+                    </div>
+                    <div>
+                        <div class="stat-value">{unique_tile_count}</div>
+                        <div class="stat-label">Tuiles uniques</div>
+                    </div>
+                    <div>
+                        <div class="stat-value">{palette_count}</div>
+                        <div class="stat-label">Palettes</div>
+                    </div>
+                    <div>
+                        <div class="stat-value">{dedup_percent:.1}%</div>
+                        <div class="stat-label">Déduplication</div>
+                    </div>
+                </div>
+
+                <h2>Mémoire VRAM</h2>
+                <table>
+                    <tr><td>BAT</td><td>{bat_size} octets</td></tr>
+                    <tr><td>Tuiles ({unique_tile_count} × 32)</td><td>{tiles_size} octets</td></tr>
+                    <tr><td>Palettes (16 × 32)</td><td>{pal_size} octets</td></tr>
+                    <tr><td><strong>Total</strong></td><td><strong>{total_vram} octets</strong></td></tr>
+                </table>
+                <div class="vram-bar">
+                    <div class="vram-fill" style="width: {vram_percent:.1}%"></div>
+                </div>
+                <p style="font-size: 12px; color: #9aa4b2; margin-top: 4px;">
+                    {vram_percent:.1}% de 64 Ko {vram_warning}
+                </p>
+
+                <h2>Paramètres</h2>
+                <table>
+                    <tr><td>Adresse VRAM</td><td>${vram_addr:04X}</td></tr>
+                    {settings_html}
+                </table>
+            </div>
+        </div>
+
+        <h2>Palettes générées</h2>
+        <div class="palettes-grid">
+            {palettes_html}
+        </div>
+
+        <footer>
+            Généré par Image2PCE II - Convertisseur d'images PC-Engine
+        </footer>
+    </div>
+</body>
+</html>"#,
+        name = dir_name,
+        tile_count = tile_count,
+        unique_tile_count = unique_tile_count,
+        palette_count = palettes.len(),
+        dedup_percent = if tile_count > 0 {
+            (1.0 - (unique_tile_count as f64 / tile_count as f64)) * 100.0
+        } else { 0.0 },
+        bat_size = bat_size,
+        tiles_size = tiles_size,
+        pal_size = pal_size,
+        total_vram = total_vram,
+        vram_percent = (total_vram as f64 / 65536.0) * 100.0,
+        vram_warning = if total_vram > 65536 { "<span class=\"warning\">(Dépassement!)</span>" } else { "" },
+        vram_addr = vram_base_address,
+        settings_html = settings_html,
+        palettes_html = palettes_html,
+    );
+
+    // Write the HTML file
+    let html_path = dir_path.join(format!("{}.html", dir_name));
+    fs::write(&html_path, html)
+        .map_err(|e| format!("Failed to write HTML file: {}", e))?;
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1763,7 +2052,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![open_image, run_conversion, export_plain_text, export_binaries, save_binaries_to_disk])
+        .invoke_handler(tauri::generate_handler![open_image, run_conversion, export_plain_text, export_binaries, save_binaries_to_disk, save_html_report])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

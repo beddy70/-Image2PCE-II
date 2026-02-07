@@ -17,13 +17,20 @@
         </div>
         <div class="actions">
           <button class="btn" id="open-image">Open image</button>
-          <button class="btn" id="save-image">Save as image</button>
           <button class="btn" id="save-binaries">Save binaries</button>
           <button class="btn" id="save-text">Save .asm</button>
+          <button class="btn" id="save-html-report">HTML report</button>
           <label class="vram-address-label">
             VRAM
             <input type="text" id="vram-address" value="$4000" size="6" placeholder="$4000" />
           </label>
+          <fieldset class="settings__fieldset">
+            <legend>Big-Endian</legend>
+            <label><input id="bat-big-endian" type="checkbox" />BAT</label>
+            <label><input id="pal-big-endian" type="checkbox" />Pal</label>
+            <label><input id="tiles-big-endian" type="checkbox" checked />Tiles</label>
+            <button class="btn btn--small" id="endian-reset" title="Réinitialiser les valeurs par défaut">↺</button>
+          </fieldset>
         </div>
       </header>
 
@@ -114,21 +121,6 @@
               <canvas id="histogram-canvas" width="256" height="100"></canvas>
             </div>
           </div>
-        </div>
-        <div class="settings__group settings__group--export">
-          <span class="settings__group-title">Export Big-Endian</span>
-          <label>
-            BAT
-            <input id="bat-big-endian" type="checkbox" />
-          </label>
-          <label>
-            Palettes
-            <input id="pal-big-endian" type="checkbox" />
-          </label>
-          <label>
-            Tiles
-            <input id="tiles-big-endian" type="checkbox" />
-          </label>
         </div>
       </section>
 

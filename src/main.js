@@ -2440,6 +2440,66 @@ async function exportBinaries() {
   }
 }
 
+/**
+ * Export HTML report with image, palettes, and statistics
+ */
+async function exportHtmlReport() {
+  if (!state.outputImageBase64 || state.palettes.length === 0) {
+    console.warn("Aucune image convertie à exporter");
+    return;
+  }
+
+  try {
+    // Convert base64 to byte array
+    const binaryString = atob(state.outputImageBase64);
+    const imageData = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      imageData[i] = binaryString.charCodeAt(i);
+    }
+
+    const vramAddress = getVramAddress();
+
+    // Gather current settings
+    const settings = {
+      resize: document.querySelector("#resize-method")?.value || "lanczos",
+      palettes: document.querySelector("#palette-count")?.value || "16",
+      dithering: document.querySelector("#dither-mode")?.value || "none",
+      transparency: document.querySelector("#transparency")?.checked ? "Oui" : "Non",
+      keepRatio: document.querySelector("#keep-ratio")?.checked ? "Oui" : "Non",
+      width: document.querySelector("#output-width-tiles")?.value || "32",
+      height: document.querySelector("#output-height-tiles")?.value || "32",
+    };
+
+    // Show save dialog
+    const { save } = window.__TAURI__.dialog;
+
+    const basePath = await save({
+      defaultPath: "rapport",
+      filters: [{ name: "HTML Report", extensions: ["html"] }],
+    });
+
+    if (!basePath) {
+      return; // User cancelled
+    }
+
+    // Call Rust to generate and save the HTML report
+    await invoke("save_html_report", {
+      basePath,
+      imageData: Array.from(imageData),
+      palettes: state.palettes,
+      tilePaletteMap: state.tilePaletteMap,
+      tileCount: state.tileCount || state.tilePaletteMap.length,
+      uniqueTileCount: state.uniqueTileCount || 0,
+      vramBaseAddress: vramAddress,
+      settings,
+    });
+
+    console.info("Rapport HTML exporté avec succès");
+  } catch (error) {
+    console.error("Erreur d'export HTML:", error);
+  }
+}
+
 // ===== End Export Functions =====
 
 // ===== Settings Persistence =====
@@ -2470,6 +2530,9 @@ function saveSettings() {
     viewerSplit: viewerSplit,
     curvePoints: state.curvePoints,
     fixedColor0: state.fixedColor0,
+    batBigEndian: document.querySelector("#bat-big-endian")?.checked,
+    palBigEndian: document.querySelector("#pal-big-endian")?.checked,
+    tilesBigEndian: document.querySelector("#tiles-big-endian")?.checked,
   };
 
   try {
@@ -2564,6 +2627,20 @@ function loadSettings() {
       state.fixedColor0 = settings.fixedColor0;
     }
 
+    // Restore endianness settings
+    if (settings.batBigEndian !== undefined) {
+      const el = document.querySelector("#bat-big-endian");
+      if (el) el.checked = settings.batBigEndian;
+    }
+    if (settings.palBigEndian !== undefined) {
+      const el = document.querySelector("#pal-big-endian");
+      if (el) el.checked = settings.palBigEndian;
+    }
+    if (settings.tilesBigEndian !== undefined) {
+      const el = document.querySelector("#tiles-big-endian");
+      if (el) el.checked = settings.tilesBigEndian;
+    }
+
   } catch (e) {
     console.warn("Impossible de charger les réglages:", e);
   }
@@ -2586,6 +2663,9 @@ function setupSettingsAutoSave() {
     "#crt-mode",
     "#output-width-tiles",
     "#output-height-tiles",
+    "#bat-big-endian",
+    "#pal-big-endian",
+    "#tiles-big-endian",
   ];
 
   inputs.forEach((selector) => {
@@ -2888,11 +2968,9 @@ function bindActions() {
   document.querySelector("#zoom-output").addEventListener("input", () => applyZoom("output"));
   setupDrag("input");
   setupDrag("output");
-  document.querySelector("#save-image").addEventListener("click", () => {
-    console.info("Sauvegarde image non implémentée");
-  });
   document.querySelector("#save-binaries").addEventListener("click", exportBinaries);
   document.querySelector("#save-text").addEventListener("click", exportPlainText);
+  document.querySelector("#save-html-report").addEventListener("click", exportHtmlReport);
 
   // Color0 mode change
   document.querySelector("#color0-mode").addEventListener("change", updateColor0Preview);
@@ -3125,4 +3203,16 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Setup auto-save for settings
   setupSettingsAutoSave();
+
+  // Setup endianness reset button
+  document.querySelector("#endian-reset")?.addEventListener("click", () => {
+    // Default values: BAT=little, Tiles=big, Pal=little
+    const batEl = document.querySelector("#bat-big-endian");
+    const palEl = document.querySelector("#pal-big-endian");
+    const tilesEl = document.querySelector("#tiles-big-endian");
+    if (batEl) batEl.checked = false;
+    if (palEl) palEl.checked = false;
+    if (tilesEl) tilesEl.checked = true;
+    saveSettings();
+  });
 });
