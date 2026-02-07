@@ -1197,6 +1197,10 @@ fn export_plain_text(
     tile_palette_map: Vec<usize>,
     empty_tiles: Vec<bool>,
     vram_base_address: u32,
+    bat_width: u32,       // BAT width in tiles (32, 64, 128)
+    bat_height: u32,      // BAT height in tiles (32, 64)
+    offset_x: u32,        // Image X offset in BAT (in tiles)
+    offset_y: u32,        // Image Y offset in BAT (in tiles)
 ) -> Result<ExportResult, String> {
     // Decode PNG image
     let img = image::load_from_memory(&image_data)
@@ -1252,43 +1256,59 @@ fn export_plain_text(
     output.push_str("; ========================================\n\n");
 
     // Stats
+    let bat_total = (bat_width * bat_height) as usize;
     output.push_str(&format!("; Image: {}x{} pixels ({} tiles)\n", width, height, total_tiles));
+    output.push_str(&format!("; BAT: {}x{} tiles, image at offset ({},{})\n", bat_width, bat_height, offset_x, offset_y));
     output.push_str(&format!("; Unique tiles: {} (saved {} duplicates)\n", unique_tiles.len(), total_tiles - unique_tiles.len()));
     output.push_str(&format!("; VRAM base address: ${:04X}\n", vram_base_address));
     output.push_str(&format!("; Tiles size: {} bytes\n", unique_tiles.len() * 32));
-    output.push_str(&format!("; BAT size: {} bytes\n\n", total_tiles * 2));
+    output.push_str(&format!("; BAT size: {} bytes\n\n", bat_total * 2));
 
-    // BAT (Block Address Table)
+    // BAT (Block Address Table) - full BAT size with image positioned at offset
     output.push_str("; ----------------------------------------\n");
     output.push_str("; BAT - Block Address Table\n");
     output.push_str("; Format: PPPP AAAA AAAA AAAA (P=palette, A=address>>4)\n");
     output.push_str("; ----------------------------------------\n");
     output.push_str("BAT:\n");
 
-    for (tile_idx, &unique_idx) in tile_to_unique.iter().enumerate() {
-        if tile_idx % tiles_x as usize == 0 {
-            if tile_idx > 0 {
-                output.push('\n');
-            }
-            output.push_str(&format!("  ; Row {}\n", tile_idx / tiles_x as usize));
+    for bat_y in 0..bat_height {
+        if bat_y > 0 {
+            output.push('\n');
         }
+        output.push_str(&format!("  ; Row {}\n", bat_y));
 
-        // Empty tiles use palette 0
-        let palette_idx = if empty_tiles.get(tile_idx).copied().unwrap_or(false) {
-            0u16
-        } else {
-            tile_palette_map.get(tile_idx).copied().unwrap_or(0) as u16
-        };
-        // VRAM is word-addressed (16-bit), each tile = 16 words (32 bytes)
-        // BAT address field = (tile_word_address >> 4) & 0x0FFF
-        let tile_address = vram_base_address + (unique_idx as u32 * 16);
-        let address_field = ((tile_address >> 4) & 0x0FFF) as u16;
-        let bat_word = (palette_idx << 12) | address_field;
+        for bat_x in 0..bat_width {
+            // Position in the source image (accounting for offset)
+            let img_x = bat_x as i32 - offset_x as i32;
+            let img_y = bat_y as i32 - offset_y as i32;
 
-        if tile_idx % tiles_x as usize == 0 {
-            output.push_str(&format!("  .dw ${:04X}", bat_word));
-        } else {
-            output.push_str(&format!(",${:04X}", bat_word));
+            let (unique_idx, palette_idx) = if img_x >= 0 && img_y >= 0
+                && img_x < tiles_x as i32 && img_y < tiles_y as i32 {
+                // Tile within the image area
+                let tile_idx = img_y as usize * tiles_x as usize + img_x as usize;
+                let uid = tile_to_unique.get(tile_idx).copied().unwrap_or(0);
+                let pid = if empty_tiles.get(tile_idx).copied().unwrap_or(false) {
+                    0u16
+                } else {
+                    tile_palette_map.get(tile_idx).copied().unwrap_or(0) as u16
+                };
+                (uid, pid)
+            } else {
+                // Outside image area = empty tile (index 0, palette 0)
+                (0, 0u16)
+            };
+
+            // VRAM is word-addressed (16-bit), each tile = 16 words (32 bytes)
+            // BAT address field = (tile_word_address >> 4) & 0x0FFF
+            let tile_address = vram_base_address + (unique_idx as u32 * 16);
+            let address_field = ((tile_address >> 4) & 0x0FFF) as u16;
+            let bat_word = (palette_idx << 12) | address_field;
+
+            if bat_x == 0 {
+                output.push_str(&format!("  .dw ${:04X}", bat_word));
+            } else {
+                output.push_str(&format!(",${:04X}", bat_word));
+            }
         }
     }
     output.push_str("\n\n");
@@ -1356,7 +1376,7 @@ fn export_plain_text(
         plain_text: output,
         tile_count: total_tiles,
         unique_tile_count: unique_tiles.len(),
-        bat_size: total_tiles * 2,
+        bat_size: bat_total * 2,
     })
 }
 
@@ -1471,6 +1491,8 @@ struct BinaryExportResult {
     // Debug info
     image_width: u32,
     image_height: u32,
+    bat_width: u32,
+    bat_height: u32,
     palette_count: usize,
     empty_tile_count: usize,
     debug_info: String,
@@ -1487,6 +1509,10 @@ fn export_binaries(
     bat_big_endian: bool,
     pal_big_endian: bool,
     tiles_big_endian: bool,
+    bat_width: u32,       // BAT width in tiles (32, 64, 128)
+    bat_height: u32,      // BAT height in tiles (32, 64)
+    offset_x: u32,        // Image X offset in BAT (in tiles)
+    offset_y: u32,        // Image Y offset in BAT (in tiles)
 ) -> Result<BinaryExportResult, String> {
     // Decode PNG image
     let img = image::load_from_memory(&image_data)
@@ -1605,26 +1631,44 @@ fn export_binaries(
         if pal_big_endian { "big" } else { "little" },
         if tiles_big_endian { "big" } else { "little" });
 
-    // Generate BAT binary (16-bit words)
-    let mut bat_data: Vec<u8> = Vec::with_capacity(total_tiles * 2);
-    for (tile_idx, &unique_idx) in tile_to_unique.iter().enumerate() {
-        // Empty tiles use palette 0
-        let palette_idx = if empty_tiles.get(tile_idx).copied().unwrap_or(false) {
-            0u16
-        } else {
-            tile_palette_map.get(tile_idx).copied().unwrap_or(0) as u16
-        };
-        // VRAM is word-addressed (16-bit), each tile = 16 words (32 bytes)
-        let tile_address = vram_base_address + (unique_idx as u32 * 16);
-        let address_field = ((tile_address >> 4) & 0x0FFF) as u16;
-        let bat_word = (palette_idx << 12) | address_field;
+    // Generate BAT binary (16-bit words) - full BAT size with image positioned at offset
+    let bat_total = (bat_width * bat_height) as usize;
+    let mut bat_data: Vec<u8> = Vec::with_capacity(bat_total * 2);
 
-        if bat_big_endian {
-            bat_data.push((bat_word >> 8) as u8);
-            bat_data.push((bat_word & 0xFF) as u8);
-        } else {
-            bat_data.push((bat_word & 0xFF) as u8);
-            bat_data.push((bat_word >> 8) as u8);
+    for bat_y in 0..bat_height {
+        for bat_x in 0..bat_width {
+            // Position in the source image (accounting for offset)
+            let img_x = bat_x as i32 - offset_x as i32;
+            let img_y = bat_y as i32 - offset_y as i32;
+
+            let (unique_idx, palette_idx) = if img_x >= 0 && img_y >= 0
+                && img_x < tiles_x as i32 && img_y < tiles_y as i32 {
+                // Tile within the image area
+                let tile_idx = img_y as usize * tiles_x as usize + img_x as usize;
+                let uid = tile_to_unique.get(tile_idx).copied().unwrap_or(0);
+                let pid = if empty_tiles.get(tile_idx).copied().unwrap_or(false) {
+                    0u16
+                } else {
+                    tile_palette_map.get(tile_idx).copied().unwrap_or(0) as u16
+                };
+                (uid, pid)
+            } else {
+                // Outside image area = empty tile (index 0, palette 0)
+                (0, 0u16)
+            };
+
+            // VRAM is word-addressed (16-bit), each tile = 16 words (32 bytes)
+            let tile_address = vram_base_address + (unique_idx as u32 * 16);
+            let address_field = ((tile_address >> 4) & 0x0FFF) as u16;
+            let bat_word = (palette_idx << 12) | address_field;
+
+            if bat_big_endian {
+                bat_data.push((bat_word >> 8) as u8);
+                bat_data.push((bat_word & 0xFF) as u8);
+            } else {
+                bat_data.push((bat_word & 0xFF) as u8);
+                bat_data.push((bat_word >> 8) as u8);
+            }
         }
     }
 
@@ -1728,6 +1772,8 @@ fn export_binaries(
         unique_tile_count: unique_tiles.len(),
         image_width: width,
         image_height: height,
+        bat_width,
+        bat_height,
         palette_count: palettes.len(),
         empty_tile_count: empty_count,
         debug_info,

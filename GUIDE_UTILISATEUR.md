@@ -76,12 +76,27 @@ Définit le nombre de palettes générées (1 à 16). Plus il y a de palettes, p
 #### Couleur de fond
 Couleur utilisée pour remplir les zones vides (si le ratio est préservé).
 
-#### Taille de sortie
-Deux curseurs permettent de définir la taille de l'image convertie :
-- **Largeur** : 32 à 128 tuiles (256 à 1024 pixels)
-- **Hauteur** : 32 à 64 tuiles (256 à 512 pixels)
+#### Taille BAT et positionnement
 
-La valeur affichée indique le nombre de tuiles et l'équivalent en pixels (ex: `32 (256 px)`).
+La PC-Engine supporte plusieurs tailles de BAT (Block Address Table). Ce groupe de réglages permet de configurer la taille de la BAT, les dimensions de l'image et son positionnement.
+
+**Taille BAT**
+Sélectionnez la taille de la BAT parmi les 5 tailles supportées :
+- **32×32** (1024 tuiles, 2 Ko) - mode standard
+- **64×32** (2048 tuiles, 4 Ko)
+- **128×32** (4096 tuiles, 8 Ko)
+- **64×64** (4096 tuiles, 8 Ko)
+- **128×64** (8192 tuiles, 16 Ko)
+
+**Largeur / Hauteur**
+Définissent la taille de l'image convertie en tuiles. Les valeurs maximales sont limitées par la taille de la BAT sélectionnée. L'image peut être plus petite que l'espace BAT disponible.
+
+**Offset X / Offset Y**
+Positionnent l'image dans la BAT. Ces valeurs sont automatiquement contraintes pour que l'image reste entièrement dans la BAT :
+- Offset X max = Largeur BAT - Largeur image
+- Offset Y max = Hauteur BAT - Hauteur image
+
+Les zones de la BAT en dehors de l'image contiennent des tuiles vides (index 0, palette 0).
 
 ---
 

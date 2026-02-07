@@ -759,6 +759,52 @@ input[type="range"] {
   height: 100%;
 }
 
+/* Size and BAT settings */
+.settings__group--size {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 280px;
+}
+
+.settings__group--size label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings__group--size .size-bat {
+  padding-bottom: 8px;
+  border-bottom: 1px solid #2a3142;
+}
+
+.settings__group--size .size-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.settings__group--size .size-row--offsets label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings__group--size input[type="number"] {
+  width: 60px;
+  padding: 6px 8px;
+  background: #1a1f2e;
+  border: 1px solid #2a3142;
+  border-radius: 6px;
+  color: #e7e9ee;
+  font-size: 12px;
+}
+
+.settings__group--size input[type="number"]:focus {
+  outline: none;
+  border-color: #4f76ff;
+}
+
 /* Export settings */
 .settings__group--export {
   display: flex;

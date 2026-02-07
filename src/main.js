@@ -121,6 +121,59 @@ async function openImage() {
   applyZoom("input");
 }
 
+/**
+ * Update size constraints based on BAT size selection
+ * Ensures image dimensions + offsets don't exceed BAT dimensions
+ */
+function updateSizeConstraints() {
+  const batSizeEl = document.querySelector("#bat-size");
+  const widthSlider = document.querySelector("#output-width-tiles");
+  const heightSlider = document.querySelector("#output-height-tiles");
+  const offsetXEl = document.querySelector("#offset-x");
+  const offsetYEl = document.querySelector("#offset-y");
+
+  if (!batSizeEl || !widthSlider || !heightSlider || !offsetXEl || !offsetYEl) return;
+
+  const batSize = batSizeEl.value;
+  const [batW, batH] = batSize.split("x").map(Number);
+
+  // Update slider max values based on BAT size
+  widthSlider.max = batW;
+  heightSlider.max = batH;
+
+  // Clamp current values if they exceed new max
+  let imgW = parseInt(widthSlider.value, 10);
+  let imgH = parseInt(heightSlider.value, 10);
+
+  if (imgW > batW) {
+    imgW = batW;
+    widthSlider.value = imgW;
+  }
+  if (imgH > batH) {
+    imgH = batH;
+    heightSlider.value = imgH;
+  }
+
+  // Update display text
+  document.querySelector("#output-width-value").textContent = `${imgW} (${imgW * 8} px)`;
+  document.querySelector("#output-height-value").textContent = `${imgH} (${imgH * 8} px)`;
+
+  // Update offset max values (image + offset must fit in BAT)
+  const maxOffsetX = batW - imgW;
+  const maxOffsetY = batH - imgH;
+
+  offsetXEl.max = maxOffsetX;
+  offsetYEl.max = maxOffsetY;
+
+  // Clamp offset values if they exceed new max
+  if (parseInt(offsetXEl.value, 10) > maxOffsetX) {
+    offsetXEl.value = maxOffsetX;
+  }
+  if (parseInt(offsetYEl.value, 10) > maxOffsetY) {
+    offsetYEl.value = maxOffsetY;
+  }
+}
+
 function initMaskCanvas(width, height) {
   const maskCanvas = document.querySelector("#mask-canvas");
   if (!maskCanvas) return;
@@ -2332,6 +2385,12 @@ async function exportPlainText() {
 
     const vramAddress = getVramAddress();
 
+    // Get BAT size and offset settings
+    const batSizeValue = document.querySelector("#bat-size")?.value || "32x32";
+    const [batWidth, batHeight] = batSizeValue.split("x").map(Number);
+    const offsetX = parseInt(document.querySelector("#offset-x")?.value, 10) || 0;
+    const offsetY = parseInt(document.querySelector("#offset-y")?.value, 10) || 0;
+
     // Call Rust export function
     const result = await invoke("export_plain_text", {
       imageData: Array.from(imageData),
@@ -2339,6 +2398,10 @@ async function exportPlainText() {
       tilePaletteMap: state.tilePaletteMap,
       emptyTiles: state.emptyTiles,
       vramBaseAddress: vramAddress,
+      batWidth,
+      batHeight,
+      offsetX,
+      offsetY,
     });
 
     // Show save dialog
@@ -2383,6 +2446,12 @@ async function exportBinaries() {
     const palBigEndian = document.querySelector("#pal-big-endian")?.checked || false;
     const tilesBigEndian = document.querySelector("#tiles-big-endian")?.checked || false;
 
+    // Get BAT size and offset settings
+    const batSizeValue = document.querySelector("#bat-size")?.value || "32x32";
+    const [batWidth, batHeight] = batSizeValue.split("x").map(Number);
+    const offsetX = parseInt(document.querySelector("#offset-x")?.value, 10) || 0;
+    const offsetY = parseInt(document.querySelector("#offset-y")?.value, 10) || 0;
+
     // Debug: log data being passed
     console.info(`DEBUG EXPORT: imageData size: ${imageData.length} bytes`);
     console.info(`DEBUG EXPORT: palettes: ${state.palettes.length}, tilePaletteMap: ${state.tilePaletteMap.length}, emptyTiles: ${state.emptyTiles.length}`);
@@ -2405,6 +2474,10 @@ async function exportBinaries() {
       batBigEndian,
       palBigEndian,
       tilesBigEndian,
+      batWidth,
+      batHeight,
+      offsetX,
+      offsetY,
     });
 
     // Show save dialog - user picks base filename
@@ -2526,6 +2599,9 @@ function saveSettings() {
     crtMode: document.querySelector("#crt-mode")?.value,
     outputWidthTiles: document.querySelector("#output-width-tiles")?.value,
     outputHeightTiles: document.querySelector("#output-height-tiles")?.value,
+    batSize: document.querySelector("#bat-size")?.value,
+    offsetX: document.querySelector("#offset-x")?.value,
+    offsetY: document.querySelector("#offset-y")?.value,
     viewerHeight: viewerHeight,
     viewerSplit: viewerSplit,
     curvePoints: state.curvePoints,
@@ -2612,6 +2688,20 @@ function loadSettings() {
         document.querySelector("#output-height-value").textContent = `${settings.outputHeightTiles} (${settings.outputHeightTiles * 8} px)`;
       }
     }
+    if (settings.batSize) {
+      const el = document.querySelector("#bat-size");
+      if (el) el.value = settings.batSize;
+    }
+    if (settings.offsetX !== undefined) {
+      const el = document.querySelector("#offset-x");
+      if (el) el.value = settings.offsetX;
+    }
+    if (settings.offsetY !== undefined) {
+      const el = document.querySelector("#offset-y");
+      if (el) el.value = settings.offsetY;
+    }
+    // Update constraints after restoring BAT size and offsets
+    updateSizeConstraints();
     if (settings.viewerHeight) {
       applyViewerHeight(settings.viewerHeight);
     }
@@ -2975,15 +3065,23 @@ function bindActions() {
   // Color0 mode change
   document.querySelector("#color0-mode").addEventListener("change", updateColor0Preview);
 
-  // Output size sliders
+  // BAT size and output size controls
+  document.querySelector("#bat-size")?.addEventListener("change", updateSizeConstraints);
   document.querySelector("#output-width-tiles")?.addEventListener("input", (e) => {
     const tiles = e.target.value;
     document.querySelector("#output-width-value").textContent = `${tiles} (${tiles * 8} px)`;
+    updateSizeConstraints();
   });
   document.querySelector("#output-height-tiles")?.addEventListener("input", (e) => {
     const tiles = e.target.value;
     document.querySelector("#output-height-value").textContent = `${tiles} (${tiles * 8} px)`;
+    updateSizeConstraints();
   });
+  document.querySelector("#offset-x")?.addEventListener("input", updateSizeConstraints);
+  document.querySelector("#offset-y")?.addEventListener("input", updateSizeConstraints);
+
+  // Initialize size constraints on load
+  updateSizeConstraints();
 
   // Mask editor controls
   document.querySelector("#mask-toggle")?.addEventListener("click", () => {
