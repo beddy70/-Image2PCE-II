@@ -4026,6 +4026,19 @@ function bindActions() {
     hidePaletteSelector();
   });
 
+  // About modal
+  document.querySelector("#about-btn")?.addEventListener("click", () => {
+    document.querySelector("#about-modal")?.classList.add("is-visible");
+  });
+  document.querySelector("#about-close")?.addEventListener("click", () => {
+    document.querySelector("#about-modal")?.classList.remove("is-visible");
+  });
+  document.querySelector("#about-modal")?.addEventListener("click", (e) => {
+    if (e.target.id === "about-modal") {
+      document.querySelector("#about-modal")?.classList.remove("is-visible");
+    }
+  });
+
   // Keyboard shortcuts for mask editing and tile editing
   document.addEventListener("keydown", (e) => {
     // Ignore shortcuts when typing in input fields

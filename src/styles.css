@@ -1427,3 +1427,48 @@ input[type="range"] {
   line-height: 1;
   margin-left: 4px;
 }
+
+/* ===== About Button & Modal ===== */
+.btn--about {
+  margin-left: 12px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: bold;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal__content--about {
+  text-align: center;
+  min-width: 280px;
+}
+
+.modal__content--about h3 {
+  font-size: 20px;
+  margin-bottom: 20px;
+}
+
+.about-info {
+  margin-bottom: 24px;
+}
+
+.about-info p {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #e7e9ee;
+}
+
+.about-info a {
+  color: #6a8aff;
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.about-info a:hover {
+  color: #8fa8ff;
+  text-decoration: underline;
+}

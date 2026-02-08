@@ -14,6 +14,7 @@
         <div class="brand">
           <span class="brand__title">Image2PCE II</span>
           <span class="brand__subtitle">Convertisseur d'images PC-Engine</span>
+          <button class="btn btn--small btn--about" id="about-btn" title="À propos">?</button>
         </div>
         <div class="actions">
           <button class="btn" id="open-image">Open image</button>
@@ -270,7 +271,7 @@
                 <option value="composite">Composite</option>
               </select>
             </label>
-                      </div>
+          </div>
         </div>
         <div class="viewer__resize-handle" id="viewer-resize-handle"></div>
       </section>
@@ -299,6 +300,19 @@
           <h3>Select target palette</h3>
           <div id="palette-selector-grid"></div>
           <button class="btn" id="palette-selector-cancel">Cancel</button>
+        </div>
+      </div>
+
+      <!-- About Modal -->
+      <div id="about-modal" class="modal">
+        <div class="modal__content modal__content--about">
+          <h3>Image2PCE II</h3>
+          <div class="about-info">
+            <p><strong>Version:</strong> <span id="about-version">0.1.6</span></p>
+            <p><strong>Written by:</strong> Eddy BRIERE &copy; 2026</p>
+            <p><a href="https://somanybits.com" target="_blank" rel="noopener">somanybits.com</a></p>
+          </div>
+          <button class="btn" id="about-close">Fermer</button>
         </div>
       </div>
     </main>
