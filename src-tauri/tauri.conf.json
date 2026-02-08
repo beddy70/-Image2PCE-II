@@ -24,7 +24,13 @@
         "enable": true,
         "scope": [
           "$HOME/**",
-          "$APPDATA/**"
+          "$APPDATA/**",
+          "$DESKTOP/**",
+          "$DOCUMENT/**",
+          "$DOWNLOAD/**",
+          "$PICTURE/**",
+          "$PUBLIC/**",
+          "**"
         ]
       }
     }
