@@ -144,6 +144,7 @@ fn run_conversion(
     mask_width: u32,
     mask_height: u32,
     palette_group_constraints: Vec<i32>,  // -1 = auto, 0-15 = forced group
+    seed: u64,  // Seed for deterministic palette clustering
 ) -> Result<ConversionResult, String> {
     // Emit: loading image
     let _ = app.emit("conversion-progress", ProgressEvent {
@@ -198,6 +199,7 @@ fn run_conversion(
         palette_count as usize,
         &background_color,
         &palette_group_constraints,
+        seed,
     )?;
 
     // Emit: applying palettes with dithering
@@ -426,11 +428,22 @@ struct TileColorInfo {
     color_counts: std::collections::HashMap<String, usize>,
 }
 
+/// Deterministic hash for tiebreaking based on seed and string
+fn seeded_hash(seed: u64, s: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    use std::collections::hash_map::DefaultHasher;
+    let mut hasher = DefaultHasher::new();
+    seed.hash(&mut hasher);
+    s.hash(&mut hasher);
+    hasher.finish()
+}
+
 fn build_palettes_for_tiles(
     image: &RgbaImage,
     palette_count: usize,
     background_color: &str,
     constraints: &[i32],  // -1 = auto, 0-15 = forced group
+    seed: u64,  // Seed for deterministic ordering
 ) -> Result<TilePaletteResult, String> {
     use std::collections::HashMap;
 
@@ -496,7 +509,7 @@ fn build_palettes_for_tiles(
             color_counts: ti.color_counts.clone(),
         })
         .collect();
-    let mut clusters = seed_palette_clusters_v2(&non_empty_infos_owned, palette_slots, &global_color0, &global_color_freq);
+    let mut clusters = seed_palette_clusters_v2(&non_empty_infos_owned, palette_slots, &global_color0, &global_color_freq, seed);
 
     // Initialize tile_palette_map with constraints
     let mut tile_palette_map = vec![0usize; tiles.len()];
@@ -527,7 +540,20 @@ fn build_palettes_for_tiles(
     }
 
     // Iterate to refine clustering (only for non-empty, unconstrained tiles)
-    for _ in 0..6 {
+    // Log initial state
+    let log_path = std::env::temp_dir().join("image2pce_clustering.log");
+    let mut log_content = String::new();
+    log_content.push_str("=== CLUSTERING LOG ===\n\n");
+    log_content.push_str(&format!("Seed: {}\n\n", seed));
+    log_content.push_str(&format!("Initial clusters (after seeding):\n"));
+    for (i, cluster) in clusters.iter().enumerate() {
+        if !cluster.is_empty() && cluster.iter().any(|c| c != &global_color0) {
+            log_content.push_str(&format!("  Palette {}: {} colors: {:?}\n", i, cluster.len(), &cluster[..cluster.len().min(5)]));
+        }
+    }
+    log_content.push_str("\n");
+
+    for iteration in 0..6 {
         // Assign each non-empty tile to best matching palette
         for (tile_index, tile_info) in tile_infos.iter().enumerate() {
             if empty_tiles[tile_index] {
@@ -554,8 +580,34 @@ fn build_palettes_for_tiles(
             &empty_tiles,
             palette_slots,
             &global_color0,
+            seed,
         );
+
+        // Log iteration state
+        log_content.push_str(&format!("--- Iteration {} ---\n", iteration + 1));
+
+        // Count tiles per palette
+        let mut palette_tile_counts = vec![0usize; palette_slots];
+        for &p in tile_palette_map.iter() {
+            if p < palette_slots {
+                palette_tile_counts[p] += 1;
+            }
+        }
+
+        for (i, cluster) in clusters.iter().enumerate() {
+            if palette_tile_counts[i] > 0 || (cluster.len() > 1 || (cluster.len() == 1 && cluster[0] != global_color0)) {
+                log_content.push_str(&format!("  Palette {} ({} tiles): {} colors\n", i, palette_tile_counts[i], cluster.len()));
+                // Log first 8 colors of each palette
+                let preview: Vec<&str> = cluster.iter().take(8).map(|s| s.as_str()).collect();
+                log_content.push_str(&format!("    Colors: {:?}\n", preview));
+            }
+        }
+        log_content.push_str("\n");
     }
+
+    // Write log file
+    let _ = std::fs::write(&log_path, &log_content);
+    eprintln!("Clustering log written to: {:?}", log_path);
 
     let mut palette_colors = Vec::new();
     let mut palettes = Vec::new();
@@ -709,25 +761,38 @@ fn seed_palette_clusters_v2(
     palette_slots: usize,
     color0: &str,
     global_freq: &std::collections::HashMap<String, usize>,
+    seed: u64,
 ) -> Vec<Vec<String>> {
     use std::collections::HashMap;
 
     // Group tiles by their dominant color (most frequent color in tile, excluding color0)
     let mut dominant_groups: HashMap<String, Vec<usize>> = HashMap::new();
     for (idx, tile_info) in tile_infos.iter().enumerate() {
-        let dominant = tile_info
+        // Get all colors except color0, sorted deterministically by (count DESC, seeded_hash)
+        let mut colors_with_counts: Vec<_> = tile_info
             .color_counts
             .iter()
             .filter(|(c, _)| *c != color0)
-            .max_by_key(|(_, count)| *count)
+            .map(|(c, count)| (c.clone(), *count))
+            .collect();
+        colors_with_counts.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| seeded_hash(seed, &a.0).cmp(&seeded_hash(seed, &b.0)))
+        });
+
+        let dominant = colors_with_counts
+            .first()
             .map(|(c, _)| c.clone())
             .unwrap_or_else(|| color0.to_string());
         dominant_groups.entry(dominant).or_default().push(idx);
     }
 
-    // Sort dominant colors by how many tiles they represent
+    // Sort dominant colors by how many tiles they represent, with seeded tiebreaker
     let mut dominant_colors: Vec<_> = dominant_groups.iter().collect();
-    dominant_colors.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    dominant_colors.sort_by(|a, b| {
+        b.1.len().cmp(&a.1.len())
+            .then_with(|| seeded_hash(seed, a.0).cmp(&seeded_hash(seed, b.0)))
+    });
 
     // Build initial palettes from the most representative tiles
     let mut palettes = Vec::new();
@@ -757,7 +822,11 @@ fn seed_palette_clusters_v2(
                 .iter()
                 .map(|(c, count)| (c.clone(), *count))
                 .collect();
-            palette.sort_by(|a, b| b.1.cmp(&a.1));
+            // Sort by count DESC, with seeded tiebreaker for determinism
+            palette.sort_by(|a, b| {
+                b.1.cmp(&a.1)
+                    .then_with(|| seeded_hash(seed, &a.0).cmp(&seeded_hash(seed, &b.0)))
+            });
 
             let mut final_palette: Vec<String> = vec![color0.to_string()];
             for (color, _) in palette.iter() {
@@ -858,6 +927,7 @@ fn rebuild_clusters_with_frequency_filtered(
     empty_tiles: &[bool],
     palette_slots: usize,
     color0: &str,
+    seed: u64,
 ) -> Vec<Vec<String>> {
     use std::collections::HashMap;
 
@@ -878,9 +948,12 @@ fn rebuild_clusters_with_frequency_filtered(
     let mut palettes: Vec<Vec<String>> = Vec::new();
 
     for freq_map in palette_color_freq.iter() {
-        // Sort colors by frequency (most used first)
+        // Sort colors by frequency (most used first), with seeded tiebreaker
         let mut color_freq: Vec<_> = freq_map.iter().collect();
-        color_freq.sort_by(|a, b| b.1.cmp(a.1));
+        color_freq.sort_by(|a, b| {
+            b.1.cmp(a.1)
+                .then_with(|| seeded_hash(seed, a.0).cmp(&seeded_hash(seed, b.0)))
+        });
 
         let mut palette = vec![color0.to_string()];
 

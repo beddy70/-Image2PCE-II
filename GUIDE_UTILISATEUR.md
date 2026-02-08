@@ -71,6 +71,26 @@ Définit le nombre de palettes générées (1 à 16). Plus il y a de palettes, p
 - **Floyd–Steinberg** : Diffusion d'erreur pour un rendu progressif
 - **ordered** : Motif régulier de points
 
+#### Seed (graine de dithering)
+
+Le paramètre **Seed** contrôle le comportement déterministe du dithering Floyd-Steinberg.
+
+**Pourquoi une seed ?**
+L'algorithme de clustering des palettes utilise des structures de données dont l'ordre d'itération peut varier. La seed garantit que le même résultat soit reproductible.
+
+| Élément | Description |
+|---------|-------------|
+| **Champ numérique** | Entrez une valeur de seed (0 à 9 quadrillions) |
+| **Bouton 🎲** | Génère une nouvelle seed aléatoire |
+
+**Utilisation :**
+- **Même seed + même image = même résultat** (toujours identique)
+- **Seed différente = résultat potentiellement différent** (distribution des palettes différente)
+- Cliquez sur **🎲** pour explorer différentes variations du dithering
+- **Notez la seed** d'un résultat qui vous plaît pour pouvoir le reproduire
+
+**Astuce** : Si le résultat du dithering ne vous convient pas, essayez plusieurs seeds avec le bouton 🎲 jusqu'à obtenir un rendu satisfaisant, puis conservez cette seed.
+
 #### Options
 - **Transparence** : Active la gestion de la transparence
 - **Keep ratio** : Préserve le ratio d'aspect de l'image source
@@ -349,7 +369,8 @@ Après conversion, les 16 palettes sont affichées avec leur utilisation :
 Les fichiers projet permettent de sauvegarder et reprendre votre travail ultérieurement. Un fichier `.i2p` contient :
 
 - **Chemin de l'image source** : L'image originale sera rechargée automatiquement
-- **Tous les réglages de conversion** : Redimensionnement, palettes, dithering, etc.
+- **Tous les réglages de conversion** : Redimensionnement, palettes, dithering, seed, etc.
+- **La seed de dithering** : Pour reproduire exactement le même résultat
 - **La courbe RGB333** : Points de contrôle personnalisés
 - **Le masque de dithering** : Zones avec/sans tramage
 - **Les groupes de palettes** : Assignations manuelles des tuiles

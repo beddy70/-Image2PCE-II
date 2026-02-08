@@ -96,6 +96,8 @@ const state = {
   projectDirty: false,
   projectPath: null,        // Path of the loaded project file
   isLoadingProject: false,  // Flag to suppress dirty marking during load
+  // Seed for deterministic dithering
+  seed: Date.now() % Number.MAX_SAFE_INTEGER,
 };
 
 // Palette group colors for visualization
@@ -953,6 +955,7 @@ async function runConversion() {
       maskWidth: state.mask.width || 0,
       maskHeight: state.mask.height || 0,
       paletteGroupConstraints,
+      seed: state.seed,
     });
 
     const {
@@ -3297,6 +3300,7 @@ async function saveProject() {
         paletteCount: document.querySelector("#palette-count")?.value,
         color0Mode: document.querySelector("#color0-mode")?.value,
         ditherMode: document.querySelector("#dither-mode")?.value,
+        ditherSeed: state.seed.toString(),
         backgroundColor: document.querySelector("#background-color")?.value,
         transparency: document.querySelector("#transparency")?.checked,
         keepRatio: document.querySelector("#keep-ratio")?.checked,
@@ -3394,6 +3398,15 @@ async function loadProject() {
       if (s.ditherMode) {
         const el = document.querySelector("#dither-mode");
         if (el) el.value = s.ditherMode;
+      }
+      if (s.ditherSeed) {
+        try {
+          state.seed = parseInt(s.ditherSeed, 10) || 0;
+          const el = document.querySelector("#dither-seed");
+          if (el) el.value = state.seed.toString();
+        } catch {
+          // Ignore invalid seed
+        }
       }
       if (s.backgroundColor) {
         const el = document.querySelector("#background-color");
@@ -3869,6 +3882,23 @@ function bindActions() {
 
   // Color0 mode change
   document.querySelector("#color0-mode").addEventListener("change", updateColor0Preview);
+
+  // Seed controls
+  const seedInput = document.querySelector("#dither-seed");
+  if (seedInput) {
+    // Initialize seed display from state
+    seedInput.value = state.seed.toString();
+    seedInput.addEventListener("change", (e) => {
+      const val = parseInt(e.target.value, 10);
+      state.seed = isNaN(val) ? 0 : Math.abs(val) % Number.MAX_SAFE_INTEGER;
+      e.target.value = state.seed.toString();
+    });
+  }
+  document.querySelector("#randomize-seed")?.addEventListener("click", () => {
+    state.seed = (Date.now() ^ Math.floor(Math.random() * 1000000)) % Number.MAX_SAFE_INTEGER;
+    const seedInput = document.querySelector("#dither-seed");
+    if (seedInput) seedInput.value = state.seed.toString();
+  });
 
   // BAT size and output size controls
   document.querySelector("#bat-size")?.addEventListener("change", updateSizeConstraints);

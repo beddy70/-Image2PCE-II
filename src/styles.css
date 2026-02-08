@@ -138,6 +138,22 @@ label {
   color: #aab3c2;
 }
 
+.seed-label {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.seed-label input[type="number"] {
+  width: 120px;
+  margin-left: 8px;
+}
+
+.seed-label .btn--small {
+  margin-left: 4px;
+  padding: 6px 8px;
+}
+
 input,
 select {
   border-radius: 10px;
