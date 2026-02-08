@@ -637,17 +637,13 @@ fn build_palettes_for_tiles(
     }
 
     // Compact palettes: move unused palettes to the end
-    // Skip compaction if there are constraints to preserve user's group choices
-    let (palettes, palette_colors, tile_palette_map) = if has_constraints {
-        (palettes, palette_colors, tile_palette_map)
-    } else {
-        compact_palettes(
-            palettes,
-            palette_colors,
-            tile_palette_map,
-            &global_color0,
-        )
-    };
+    // Always compact - palettes with 0 tiles should be at the end regardless of constraints
+    let (palettes, palette_colors, tile_palette_map) = compact_palettes(
+        palettes,
+        palette_colors,
+        tile_palette_map,
+        &global_color0,
+    );
 
     Ok(TilePaletteResult {
         palettes,
