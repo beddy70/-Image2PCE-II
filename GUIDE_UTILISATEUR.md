@@ -1,5 +1,7 @@
 # Guide Utilisateur — Image2PCE II
 
+**Version 0.1.7**
+
 ![Image2PCE II](screenshot.png)
 
 ## Introduction
@@ -23,6 +25,7 @@ Image2PCE II est un outil de conversion d'images pour la console PC-Engine / Tur
 3. [Visualiseurs](#visualiseurs)
    - [Source (gauche)](#source-gauche)
    - [Sortie (droite)](#sortie-droite)
+   - [VRAM Map](#vram-map)
 4. [Masque de dithering](#masque-de-dithering)
 5. [Groupes de palettes](#groupes-de-palettes)
 6. [Éditeur de tuiles](#éditeur-de-tuiles)
@@ -163,6 +166,37 @@ Simulez l'affichage sur un écran cathodique :
 | **Composite** | Combinaison complète avec vignettage |
 
 Un léger flou analogique est automatiquement appliqué lorsqu'un mode CRT est sélectionné.
+
+### VRAM Map
+
+La carte mémoire VRAM affiche visuellement l'occupation de la mémoire vidéo de 64 Ko de la PC-Engine. Elle se trouve sous l'histogramme dans le panneau des réglages.
+
+#### Affichage
+
+```
+VRAM Map (64 Ko)                              42%
+[█████BAT█████|           |████████Tiles████████|     ]
+$0000         $4000       $8000       $C000       $FFFF
+BAT: $0000-$0800 (2 Ko)    Tuiles: $4000-$A400 (25.2 Ko)
+```
+
+| Élément | Description |
+|---------|-------------|
+| **Barre BAT** (bleu) | Position et taille de la BAT, toujours à `$0000` |
+| **Barre Tuiles** (violet) | Position et taille des tuiles à l'adresse VRAM configurée |
+| **Échelle** | Adresses hexadécimales de `$0000` à `$FFFF` |
+| **Pourcentage** | Occupation totale de la VRAM |
+
+#### Alertes
+
+La VRAM Map détecte automatiquement les problèmes de configuration :
+
+| Alerte | Description |
+|--------|-------------|
+| **Chevauchement BAT/Tuiles** | La zone de chevauchement s'affiche en rouge rayé avec le message d'alerte |
+| **Dépassement VRAM** | Les tuiles débordent au-delà de `$FFFF` |
+
+**Conseil** : Ajustez l'adresse **VRAM** dans la barre supérieure pour éviter les chevauchements. La BAT occupe les premiers octets à partir de `$0000`, placez donc vos tuiles plus loin (ex: `$4000` par défaut).
 
 ---
 

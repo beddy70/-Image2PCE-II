@@ -4169,7 +4169,15 @@ function bindActions() {
   });
 
   // About modal
-  document.querySelector("#about-btn")?.addEventListener("click", () => {
+  document.querySelector("#about-btn")?.addEventListener("click", async () => {
+    // Fetch version from Tauri
+    try {
+      const version = await window.__TAURI__.app.getVersion();
+      const versionEl = document.querySelector("#about-version");
+      if (versionEl) versionEl.textContent = version;
+    } catch (e) {
+      console.warn("Could not fetch app version:", e);
+    }
     document.querySelector("#about-modal")?.classList.add("is-visible");
   });
   document.querySelector("#about-close")?.addEventListener("click", () => {
