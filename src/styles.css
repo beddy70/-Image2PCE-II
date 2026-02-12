@@ -934,6 +934,159 @@ input[type="range"] {
   height: 100%;
 }
 
+/* VRAM Memory Map */
+.vram-map {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #2a3142;
+}
+
+.vram-map__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.vram-map__title {
+  font-size: 12px;
+  color: #aab3c2;
+  font-weight: 500;
+}
+
+.vram-map__value {
+  font-size: 12px;
+  color: #e7e9ee;
+  font-weight: 600;
+}
+
+.vram-map__bar {
+  position: relative;
+  height: 24px;
+  background: #1a1f2e;
+  border: 1px solid #2a3142;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.vram-map__block {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  white-space: nowrap;
+  transition: left 0.3s ease, width 0.3s ease;
+  min-width: 0;
+}
+
+.vram-map__block--bat {
+  background: linear-gradient(90deg, #4f76ff, #6a8aff);
+  left: 0;
+  width: 0;
+  z-index: 1;
+}
+
+.vram-map__block--tiles {
+  background: linear-gradient(90deg, #6a4bff, #8a6bff);
+  left: 25%;
+  width: 0;
+  z-index: 2;
+}
+
+.vram-map__overlap {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: repeating-linear-gradient(
+    45deg,
+    #ff4444,
+    #ff4444 4px,
+    #ff6666 4px,
+    #ff6666 8px
+  );
+  z-index: 3;
+  display: none;
+}
+
+.vram-map__overlap.is-visible {
+  display: block;
+  animation: overlap-pulse 1s ease-in-out infinite;
+}
+
+@keyframes overlap-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.vram-map__scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font-size: 9px;
+  color: #6f7a8c;
+  font-family: monospace;
+}
+
+.vram-map__legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #8d97a8;
+}
+
+.vram-map__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: monospace;
+}
+
+.vram-map__legend-item--bat::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #4f76ff;
+  border-radius: 2px;
+}
+
+.vram-map__legend-item--tiles::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: #6a4bff;
+  border-radius: 2px;
+}
+
+.vram-map__alert {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(255, 68, 68, 0.15);
+  border: 1px solid #ff4444;
+  border-radius: 4px;
+  color: #ff6666;
+  font-size: 11px;
+  display: none;
+}
+
+.vram-map__alert.is-visible {
+  display: block;
+}
+
+.vram-map__bar.has-overlap {
+  border-color: #ff4444;
+  box-shadow: 0 0 8px rgba(255, 68, 68, 0.3);
+}
+
 /* Size and BAT settings */
 .settings__group--size {
   display: flex;

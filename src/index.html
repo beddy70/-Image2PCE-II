@@ -152,6 +152,29 @@
               <canvas id="histogram-canvas" width="256" height="100"></canvas>
             </div>
           </div>
+          <div class="vram-map">
+            <div class="vram-map__header">
+              <span class="vram-map__title">VRAM Map (64 Ko)</span>
+              <span class="vram-map__value" id="vram-usage">0%</span>
+            </div>
+            <div class="vram-map__bar" id="vram-bar">
+              <div class="vram-map__block vram-map__block--bat" id="vram-bat" title="BAT">BAT</div>
+              <div class="vram-map__block vram-map__block--tiles" id="vram-tiles" title="Tuiles">Tiles</div>
+              <div class="vram-map__overlap" id="vram-overlap"></div>
+            </div>
+            <div class="vram-map__scale">
+              <span>$0000</span>
+              <span>$4000</span>
+              <span>$8000</span>
+              <span>$C000</span>
+              <span>$FFFF</span>
+            </div>
+            <div class="vram-map__legend">
+              <span class="vram-map__legend-item vram-map__legend-item--bat">BAT: <span id="vram-bat-info">$0000</span></span>
+              <span class="vram-map__legend-item vram-map__legend-item--tiles">Tuiles: <span id="vram-tiles-info">$4000</span></span>
+            </div>
+            <div class="vram-map__alert" id="vram-alert"></div>
+          </div>
         </div>
       </section>
 

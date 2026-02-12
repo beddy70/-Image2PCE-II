@@ -35,6 +35,7 @@ struct ConversionResult {
     tile_count: usize,
     unique_tile_count: usize,
     tile_to_unique: Vec<usize>,
+    was_pre_resized: bool,
 }
 
 /// Resize mask from source dimensions to target dimensions using nearest neighbor
@@ -152,7 +153,23 @@ fn run_conversion(
         stage: "Chargement de l'image...".to_string(),
     });
 
-    let image = image::open(&input_path).map_err(|e| e.to_string())?;
+    let mut image = image::open(&input_path).map_err(|e| e.to_string())?;
+    let mut was_pre_resized = false;
+
+    // Pre-resize if source is more than 2x the target size
+    // This improves performance and quality for very large images
+    let max_width = target_width * 2;
+    let max_height = target_height * 2;
+    if image.width() > max_width || image.height() > max_height {
+        let _ = app.emit("conversion-progress", ProgressEvent {
+            percent: 10,
+            stage: "Pré-redimensionnement...".to_string(),
+        });
+
+        // Use Lanczos3 for high-quality pre-resize
+        image = image.resize(max_width, max_height, FilterType::Lanczos3);
+        was_pre_resized = true;
+    }
 
     // Emit: resizing
     let _ = app.emit("conversion-progress", ProgressEvent {
@@ -295,6 +312,7 @@ fn run_conversion(
         tile_count: total_tiles,
         unique_tile_count: unique_tiles.len(),
         tile_to_unique,
+        was_pre_resized,
     })
 }
 

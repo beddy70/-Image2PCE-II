@@ -3,6 +3,9 @@ const { listen } = window.__TAURI__.event;
 
 const state = {
   inputImage: null,
+  inputFilename: null,      // Just the filename (without path)
+  inputWidth: 0,            // Original source image width
+  inputHeight: 0,           // Original source image height
   outputPreview: null,
   outputImageBase64: null,
   originalImageData: null, // Store original ImageData for blur processing
@@ -134,7 +137,6 @@ async function openImage() {
 
   state.inputImage = selected;
   const inputMeta = document.querySelector("#input-meta");
-  inputMeta.textContent = selected;
   const inputCanvas = document.querySelector("#input-canvas");
   const fileUrl = convertFileSrc(selected);
   inputCanvas.innerHTML = `
@@ -150,7 +152,16 @@ async function openImage() {
   // Wait for image to load to get dimensions for mask and palette groups
   const sourceImg = document.querySelector("#source-image");
   sourceImg.onload = () => {
-    initMaskCanvas(sourceImg.naturalWidth, sourceImg.naturalHeight);
+    // Extract filename from path and store in state
+    const filename = selected.split(/[\\/]/).pop();
+    const w = sourceImg.naturalWidth;
+    const h = sourceImg.naturalHeight;
+    state.inputFilename = filename;
+    state.inputWidth = w;
+    state.inputHeight = h;
+    inputMeta.textContent = `${filename} (${w}×${h})`;
+
+    initMaskCanvas(w, h);
     initPaletteGroupsCanvas();
   };
 
@@ -966,7 +977,17 @@ async function runConversion() {
       tile_count: tileCount,
       unique_tile_count: uniqueTileCount,
       tile_to_unique: tileToUnique,
+      was_pre_resized: wasPreResized,
     } = conversionResult;
+
+    // Update input meta to show pre-resize info if applicable
+    const inputMeta = document.querySelector("#input-meta");
+    if (wasPreResized) {
+      const preResizeSize = `${targetWidth * 2}×${targetHeight * 2}`;
+      inputMeta.textContent = `${state.inputFilename} (${state.inputWidth}×${state.inputHeight}) → ${preResizeSize}`;
+    } else {
+      inputMeta.textContent = `${state.inputFilename} (${state.inputWidth}×${state.inputHeight})`;
+    }
 
     // Store in state for tile hover feature and export
     state.palettes = palettes;
@@ -1028,6 +1049,9 @@ async function runConversion() {
     const outputMeta = document.querySelector("#output-meta");
     outputMeta.innerHTML = `${tileCount} tuiles (${uniqueTileCount} uniques, ${duplicates} doublons)<br>` +
       `<span class="${vramExceeded ? 'vram-exceeded' : ''}">VRAM: ${vramKb} Ko (BAT: ${batBytes} + Tuiles: ${tilesBytes})${vramExceeded ? ' — capacité VRAM dépassée' : ''}</span>`;
+
+    // Update VRAM gauge
+    updateVramGauge(batBytes, tilesBytes);
 
     applyZoom("output");
     renderPalettes(palettes, tilePaletteMap);
@@ -1165,6 +1189,116 @@ function updateColor0Preview() {
       color0Preview.style.backgroundColor = bgColor;
       color0Preview.title = `Couleur 0 auto: ${bgColor}`;
       state.fixedColor0 = bgColor.toUpperCase();
+    }
+  }
+}
+
+/**
+ * Update the VRAM memory map with BAT and tiles positions
+ * @param {number} batBytes - BAT size in bytes
+ * @param {number} tilesBytes - Tiles size in bytes
+ */
+function updateVramGauge(batBytes, tilesBytes) {
+  const VRAM_SIZE = 65536; // 64 KB = $10000
+
+  // Parse VRAM address for tiles (default $4000)
+  const vramInput = document.querySelector("#vram-address");
+  let tilesStart = 0x4000;
+  if (vramInput) {
+    const val = vramInput.value.trim().replace(/^\$/, "");
+    const parsed = parseInt(val, 16);
+    if (!isNaN(parsed) && parsed >= 0 && parsed <= 0xFFFF) {
+      tilesStart = parsed;
+    }
+  }
+
+  // BAT always starts at $0000
+  const batStart = 0;
+  const batEnd = batStart + batBytes;
+  const tilesEnd = tilesStart + tilesBytes;
+
+  // Calculate percentages for positioning
+  const batStartPercent = (batStart / VRAM_SIZE) * 100;
+  const batWidthPercent = (batBytes / VRAM_SIZE) * 100;
+  const tilesStartPercent = (tilesStart / VRAM_SIZE) * 100;
+  const tilesWidthPercent = (tilesBytes / VRAM_SIZE) * 100;
+
+  // Detect overlap: BAT ends after tiles start, and tiles start before BAT ends
+  const hasOverlap = batEnd > tilesStart && tilesStart < batEnd;
+  const overlapStart = hasOverlap ? tilesStart : 0;
+  const overlapEnd = hasOverlap ? Math.min(batEnd, tilesEnd) : 0;
+  const overlapBytes = overlapEnd - overlapStart;
+
+  // Calculate total usage (accounting for overlap)
+  const totalUsed = hasOverlap
+    ? Math.max(batEnd, tilesEnd)
+    : batBytes + tilesBytes;
+  const totalPercent = (totalUsed / VRAM_SIZE) * 100;
+
+  // Format address for display
+  const formatAddr = (addr) => "$" + addr.toString(16).toUpperCase().padStart(4, "0");
+  const formatBytes = (bytes) => {
+    if (bytes >= 1024) {
+      return (bytes / 1024).toFixed(1) + " Ko";
+    }
+    return bytes + " o";
+  };
+
+  // Update BAT block
+  const batBlock = document.querySelector("#vram-bat");
+  if (batBlock) {
+    batBlock.style.left = `${batStartPercent}%`;
+    batBlock.style.width = `${batWidthPercent}%`;
+    batBlock.title = `BAT: ${formatAddr(batStart)} - ${formatAddr(batEnd)} (${formatBytes(batBytes)})`;
+    batBlock.textContent = batWidthPercent > 8 ? "BAT" : "";
+  }
+
+  // Update Tiles block
+  const tilesBlock = document.querySelector("#vram-tiles");
+  if (tilesBlock) {
+    tilesBlock.style.left = `${tilesStartPercent}%`;
+    tilesBlock.style.width = `${tilesWidthPercent}%`;
+    tilesBlock.title = `Tuiles: ${formatAddr(tilesStart)} - ${formatAddr(tilesEnd)} (${formatBytes(tilesBytes)})`;
+    tilesBlock.textContent = tilesWidthPercent > 8 ? "Tiles" : "";
+  }
+
+  // Update overlap indicator
+  const overlapBlock = document.querySelector("#vram-overlap");
+  const mapBar = document.querySelector("#vram-bar");
+  if (overlapBlock && mapBar) {
+    if (hasOverlap) {
+      const overlapStartPercent = (overlapStart / VRAM_SIZE) * 100;
+      const overlapWidthPercent = (overlapBytes / VRAM_SIZE) * 100;
+      overlapBlock.style.left = `${overlapStartPercent}%`;
+      overlapBlock.style.width = `${overlapWidthPercent}%`;
+      overlapBlock.classList.add("is-visible");
+      mapBar.classList.add("has-overlap");
+    } else {
+      overlapBlock.classList.remove("is-visible");
+      mapBar.classList.remove("has-overlap");
+    }
+  }
+
+  // Update text values
+  const usageEl = document.querySelector("#vram-usage");
+  const batInfoEl = document.querySelector("#vram-bat-info");
+  const tilesInfoEl = document.querySelector("#vram-tiles-info");
+
+  if (usageEl) usageEl.textContent = `${Math.round(totalPercent)}%`;
+  if (batInfoEl) batInfoEl.textContent = `${formatAddr(batStart)}-${formatAddr(batEnd)} (${formatBytes(batBytes)})`;
+  if (tilesInfoEl) tilesInfoEl.textContent = `${formatAddr(tilesStart)}-${formatAddr(tilesEnd)} (${formatBytes(tilesBytes)})`;
+
+  // Update alert
+  const alertEl = document.querySelector("#vram-alert");
+  if (alertEl) {
+    if (hasOverlap) {
+      alertEl.textContent = `Chevauchement BAT/Tuiles: ${formatBytes(overlapBytes)} (${formatAddr(overlapStart)}-${formatAddr(overlapEnd)})`;
+      alertEl.classList.add("is-visible");
+    } else if (tilesEnd > VRAM_SIZE) {
+      alertEl.textContent = `Dépassement VRAM: les tuiles débordent de ${formatBytes(tilesEnd - VRAM_SIZE)}`;
+      alertEl.classList.add("is-visible");
+    } else {
+      alertEl.classList.remove("is-visible");
     }
   }
 }
@@ -3568,7 +3702,6 @@ async function loadImageFromPath(imagePath) {
 
   state.inputImage = imagePath;
   const inputMeta = document.querySelector("#input-meta");
-  inputMeta.textContent = imagePath;
   const inputCanvas = document.querySelector("#input-canvas");
   const fileUrl = convertFileSrc(imagePath);
 
@@ -3585,7 +3718,16 @@ async function loadImageFromPath(imagePath) {
   return new Promise((resolve) => {
     const sourceImg = document.querySelector("#source-image");
     sourceImg.onload = () => {
-      initMaskCanvas(sourceImg.naturalWidth, sourceImg.naturalHeight);
+      // Extract filename from path and store in state
+      const filename = imagePath.split(/[\\/]/).pop();
+      const w = sourceImg.naturalWidth;
+      const h = sourceImg.naturalHeight;
+      state.inputFilename = filename;
+      state.inputWidth = w;
+      state.inputHeight = h;
+      inputMeta.textContent = `${filename} (${w}×${h})`;
+
+      initMaskCanvas(w, h);
       initPaletteGroupsCanvas();
       resolve(sourceImg);
     };
